@@ -1,9 +1,59 @@
 import os
-from dotenv import load_dotenv  # 匯入讀取工具
+from flask import Flask, request, abort
+from linebot import LineBotApi, WebhookHandler
+from linebot.exceptions import InvalidSignatureError
+from linebot.models import MessageEvent, TextMessage, TextSendMessage
+from dotenv import load_dotenv
 
-load_dotenv()  # 這一行會去讀取 .env 檔案裡的內容
+# 載入環境變數 (讓電腦讀取 .env)
+load_dotenv()
 
-# 原本你可能寫死密碼，現在改成這樣：
-# 意思是：「去系統環境裡找一個叫做 CHANNEL_SECRET 的東西給我」
-channel_secret = os.getenv('CHANNEL_SECRET')
+# 初始化 Flask 應用程式 (這就是 Render 在找的那個 app！)
+app = Flask(__name__)
+
+# 從環境變數抓取 LINE 的密碼
 channel_access_token = os.getenv('CHANNEL_ACCESS_TOKEN')
+channel_secret = os.getenv('CHANNEL_SECRET')
+
+# 確認密碼有沒有抓到
+if channel_access_token is None or channel_secret is None:
+    print("請確認 .env 檔案或 Render 環境變數是否設定正確！")
+
+# 設定 LINE Bot 的連線工具
+line_bot_api = LineBotApi(channel_access_token)
+handler = WebhookHandler(channel_secret)
+
+# 這是 LINE 傳訊息給我們時的入口 (Webhook)
+@app.route("/callback", methods=['POST'])
+def callback():
+    # 抓取簽名 (這是為了確認訊息真的是 LINE 傳來的)
+    signature = request.headers['X-Line-Signature']
+
+    # 抓取訊息內容
+    body = request.get_data(as_text=True)
+    app.logger.info("Request body: " + body)
+
+    # 處理訊息
+    try:
+        handler.handle(body, signature)
+    except InvalidSignatureError:
+        abort(400)
+
+    return 'OK'
+
+# 當機器人收到「文字訊息」時，會執行這裡
+@app.route("/", methods=['GET'])
+def home():
+    return "Hello World! Your Line Bot is running."
+
+@handler.add(MessageEvent, message=TextMessage)
+def handle_message(event):
+    # 這裡寫機器人的邏輯：把用戶傳來的文字 (event.message.text) 原封不動傳回去
+    line_bot_api.reply_message(
+        event.reply_token,
+        TextSendMessage(text=event.message.text)
+    )
+
+# 程式入口
+if __name__ == "__main__":
+    app.run()
