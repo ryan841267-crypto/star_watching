@@ -121,6 +121,56 @@ def scrape_weekly_table(pid, location_name):
         print(f"❌ 爬取錯誤: {e}")
         return []
 
+# ====== 請把這段貼在 scraper.py 的最下面 (if __name__ 之前) ======
+
+def get_star_info(user_input):
+    """
+    這就是給 Line Bot 呼叫的窗口函數
+    輸入: "合歡山"
+    輸出: "合歡山的天氣預報字串..."
+    """
+    # 1. 搜尋地點 (模糊比對)
+    target_pid = None
+    target_name = None
+    
+    for pid, name in all_locations.items():
+        if user_input in name: # 如果用戶輸入的字包含在地點名稱內 (例如輸入"塔塔加" 對應 "新中橫塔塔加...")
+            target_pid = pid
+            target_name = name
+            break
+    
+    if not target_pid:
+        return f"找不到「{user_input}」這個地點喔！\n請輸入完整的觀星點名稱，例如：\n陽明山、合歡山、阿里山、塔塔加..."
+
+    # 2. 爬取該地點資料
+    print(f"正在查詢 {target_name} ({target_pid})...")
+    data = scrape_weekly_table(target_pid, target_name)
+    
+    if not data:
+        return "抱歉，目前氣象局網站查無資料，請稍後再試。"
+
+    # 3. 整理資料 (我們只抓最近的一個「晚上」來回報)
+    forecast = None
+    for item in data:
+        if "晚上" in item['time_desc']:
+            forecast = item
+            break # 找到第一個晚上就停止
+    
+    if not forecast:
+        return f"目前沒有 {target_name} 晚上的預報資料。"
+
+    # 4. 組合成 Line 要顯示的文字
+    reply = f"🌌 【{target_name}】觀星預報\n"
+    reply += f"📅 時間：{forecast['date']} ({forecast['time_desc']})\n"
+    reply += f"☁️ 天氣：{forecast.get('天氣現象', '未知')}\n"
+    reply += f"🌡️ 溫度：{forecast.get('溫度', '未知')}°C\n"
+    reply += f"🌧️ 降雨機率：{forecast.get('降雨機率', '未知')}%\n"
+    reply += f"☁️ 雲量：{forecast.get('雲量', '未知')}\n"
+    reply += f"👀 能見度：{forecast.get('能見度', '未知')}\n"
+    reply += f"⭐ 觀星指數：{forecast.get('觀星指數', '未知')}"
+    
+    return reply
+
 # --- 主程式 ---
 if __name__ == "__main__":
     if not all_locations:

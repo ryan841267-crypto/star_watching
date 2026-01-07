@@ -4,6 +4,7 @@ from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
 from linebot.models import MessageEvent, TextMessage, TextSendMessage
 from dotenv import load_dotenv
+from scraper import get_star_info
 
 # 載入環境變數 (讓電腦讀取 .env)
 load_dotenv()
@@ -48,10 +49,15 @@ def home():
 
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
-    # 這裡寫機器人的邏輯：把用戶傳來的文字 (event.message.text) 原封不動傳回去
+    user_msg = event.message.text # 用戶輸入的字，例如 "合歡山"
+    
+    # 呼叫爬蟲程式去查天氣
+    reply_text = get_star_info(user_msg)
+
+    # 把查到的結果回傳給用戶
     line_bot_api.reply_message(
         event.reply_token,
-        TextSendMessage(text=event.message.text)
+        TextSendMessage(text=reply_text)
     )
 
 # 程式入口
