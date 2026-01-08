@@ -1,1 +1,21 @@
+# 1. 虛擬環境 (必備)
+venv/
+.venv/
+env/
+
+# 2. 環境變數密鑰 (必備)
 .env
+
+# 3. Python 編譯暫存檔 (建議)
+__pycache__/
+*.py[cod]
+*$py.class
+
+# 4. 作業系統或編輯器產生的雜物 (建議)
+.DS_Store
+.vscode/
+.idea/
+
+# 5. 資料檔案 (根據你的需求決定)
+# 如果你希望 CSV 由 GitHub Actions 自動更新並存回 GitHub，
+# 那麼這裡「不要」寫 all_taiwan_star_forecast.csv

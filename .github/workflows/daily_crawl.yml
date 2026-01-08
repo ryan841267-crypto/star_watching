@@ -1,0 +1,40 @@
+name: Daily Star Forecast Crawl
+
+on:
+  schedule:
+    # 每天台灣時間 00:00, 06:00, 12:00, 18:00 執行
+    - cron: '0 16,22,4,10 * * *'
+  workflow_dispatch: # 讓你可以手動點擊執行
+
+# --- 💡 新增：明確開啟寫入權限 ---
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          pip install requests pandas beautifulsoup4 lxml
+
+      - name: Run scraper
+        # --- 💡 修正：確保檔名與你的檔案 scraper_final.py 一致 ---
+        run: python scraper_final.py
+
+      - name: Commit and Push changes
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add all_taiwan_star_forecast.csv
+          # 如果資料沒變動，commit 會失敗，使用 || exit 0 讓流程正常結束
+          git commit -m "Auto update forecast data" || exit 0
+          git push
