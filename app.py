@@ -51,7 +51,7 @@ REGION_DEFAULT_IMAGES = {
 
 # (C) 已有專屬照片的地點 PID
 # 如果你有上傳 F022.jpg (小油坑)，就把它加進這個清單
-HAS_PHOTO_PIDS = ["F022", "F017"] # 範例，你可以隨時新增
+HAS_PHOTO_PIDS = [] # 範例，你可以隨時新增
 
 # --- 3. 區域分類 ---
 region_map = {
