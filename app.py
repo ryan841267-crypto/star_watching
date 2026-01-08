@@ -24,36 +24,86 @@ channel_secret = os.getenv('CHANNEL_SECRET')
 line_bot_api = LineBotApi(channel_access_token)
 handler = WebhookHandler(channel_secret)
 
-# --- 1. 載入簡介資料 ---
+# ==========================================
+# 0. 資料與設定區
+# ==========================================
+
+# (A) 載入簡介資料
 SPOT_DESCRIPTIONS = {}
 if os.path.exists("spot_descriptions.json"):
     with open("spot_descriptions.json", "r", encoding="utf-8") as f:
         SPOT_DESCRIPTIONS = json.load(f)
 
-# --- 2. 圖片設定 (請修改這裡) ---
-
-# GitHub 圖片基地網址
-# 格式: https://raw.githubusercontent.com/帳號/專案名/main/images/
+# (B) 圖片設定 (已根據你的 GitHub 設定修正)
 GITHUB_BASE_URL = "https://raw.githubusercontent.com/ryan841267-crypto/star_watching/main/images/"
 
-# (A) 全域預設圖：用於「主選單」以及「完全找不到圖時」的備案
-# 建議你在 images 資料夾放一張 default.jpg，然後把下一行註解拿掉：
+# 全域預設圖 (主選單封面)
 DEFAULT_IMG_URL = f"{GITHUB_BASE_URL}default.jpg"
-# ⬇️ 暫時先用 Unsplash 當預設，等你上傳 default.jpg 後可以換掉上面那行
-# DEFAULT_IMG_URL = "https://images.unsplash.com/photo-1519681393784-d120267933ba?ixlib=rb-1.2.1&auto=format&fit=crop&w=1350&q=80"
 
-# (B) 區域預設圖：該區域的統一樣式
+# 區域預設圖
 REGION_DEFAULT_IMAGES = {
     "北部": "north_default.jpg",
     "中部": "central_default.jpg",
     "南部": "south_default.jpg"
 }
 
-# (C) 已有專屬照片的地點 PID
-# 如果你有上傳 F022.jpg (小油坑)，就把它加進這個清單
-HAS_PHOTO_PIDS = ["F022", "F017"] # 範例，你可以隨時新增
+# 已有專屬照片的地點 PID (這裡只留這兩個範例，你可以自己增減)
+HAS_PHOTO_PIDS = ["F022"] 
 
-# --- 3. 區域分類 ---
+# (C) 歌詞與彩蛋設定
+LYRICS_STAR_EYES = """看著夜晚的繁星，來首眼底星空吧!
+<<歌詞複習>>
+
+verse
+妳好喜歡看我眼睛
+妳說是宇宙的縮影
+只要沒有分離天氣晴 能看見星星
+我努力愛妳寵妳調整自己
+我是鄰居還是伴侶
+時間帶來殘忍結局
+在愛情的隔壁住友情 界線太銳利
+對不起就一刀切開所有親密
+
+chorus
+眼底星空 流星開始墜落
+每一滴眼淚說著妳要好好走
+轉過身跌入黑洞 看著天長地久變兩種漂泊
+男人流淚比流血加倍心痛
+眼底星空 流星跌落手中
+我緊緊握著抬頭向上天祈求
+願妳先找到溫柔 有人包紮傷口也擋住寂寞
+謝謝妳陪我陪愛聽雨追風
+
+verse
+用三年去維繫感情
+用三秒鐘結束關係
+剩回憶能回去 能溫習 能把妳抱緊
+就算愛燒成灰燼揚起變烏雲
+
+chorus
+眼底星空 流星開始墜落
+每一滴眼淚說著妳要好好走
+轉過身跌入黑洞 看著天長地久變兩種漂泊
+男人流淚比流血加倍心痛
+眼底星空 流星跌落手中
+我緊緊握著抬頭向上天祈求
+願妳先找到溫柔 有人包紮傷口也擋住寂寞
+謝謝妳陪我陪愛聽雨追風
+
+眼底星空 流星跌落手中
+我緊緊握著抬頭向上天祈求
+願妳先找到溫柔 有人包紮傷口也擋住寂寞
+謝謝妳陪我陪愛聽雨追風
+
+outro
+謝謝他給你給愛另一個星空"""
+
+EASTER_EGGS = {
+    "心情不好": "選個觀星點，抬頭看看星空吧，宇宙這麼大，煩惱其實很渺小的！🌌",
+    "眼底星空": LYRICS_STAR_EYES
+}
+
+# (D) 區域分類
 region_map = {
     "北部": ["F010", "F022", "F023", "F011", "F012", "F013", "F001"],
     "中部": ["F014", "F019", "F018", "F020", "F021", "F002", "F016", "F004", "F003"],
@@ -75,22 +125,18 @@ def home():
     return "Star Bot Running"
 
 # ==========================================
-# A. 處理「文字訊息」&「加好友」 (Flex Message 主選單)
+# A. 產生選單函式 (只回傳物件，不發送)
 # ==========================================
-def send_region_menu(reply_token):
-    # 使用全域預設圖作為主選單封面
+def get_main_menu_flex():
     flex_content = {
         "type": "bubble",
         "hero": {
             "type": "image",
-            "url": DEFAULT_IMG_URL, # 使用預設圖
+            "url": DEFAULT_IMG_URL,
             "size": "full",
             "aspectRatio": "20:13",
             "aspectMode": "cover",
-            "action": {
-                "type": "uri",
-                "uri": "http://linecorp.com/"
-            }
+            "action": {"type": "uri", "uri": "http://linecorp.com/"}
         },
         "body": {
             "type": "box",
@@ -144,22 +190,38 @@ def send_region_menu(reply_token):
             "backgroundColor": "#0f1c30"
         }
     }
+    return FlexSendMessage(alt_text="請選擇觀星區域", contents=flex_content)
 
-    line_bot_api.reply_message(
-        reply_token,
-        FlexSendMessage(alt_text="請選擇觀星區域", contents=flex_content)
-    )
+# ==========================================
+# B. 處理「加好友」&「文字訊息」 (核心邏輯)
+# ==========================================
 
 @handler.add(FollowEvent)
 def handle_follow(event):
-    send_region_menu(event.reply_token)
+    # 加好友時，直接丟選單
+    menu_message = get_main_menu_flex()
+    line_bot_api.reply_message(event.reply_token, menu_message)
 
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
-    send_region_menu(event.reply_token)
+    user_text = event.message.text
+    reply_list = []
+    
+    # 1. 檢查是否觸發彩蛋 (只要句子裡包含關鍵字就觸發)
+    for keyword, response_text in EASTER_EGGS.items():
+        if keyword in user_text:
+            reply_list.append(TextSendMessage(text=response_text))
+            break # 找到一個關鍵字就停，避免一次回太多
+    
+    # 2. 無論有無觸發彩蛋，最後都要接上主選單
+    menu_message = get_main_menu_flex()
+    reply_list.append(menu_message)
+    
+    # 3. 發送 (可能是 [選單] 或是 [文字, 選單])
+    line_bot_api.reply_message(event.reply_token, reply_list)
 
 # ==========================================
-# B. 處理「按鈕點擊」 (三層式圖片邏輯)
+# C. 處理「按鈕點擊」 (三層式圖片邏輯)
 # ==========================================
 @handler.add(PostbackEvent)
 def handle_postback(event):
@@ -176,20 +238,20 @@ def handle_postback(event):
         for pid in pids:
             name = all_locations.get(pid, "未知")
             
-            # --- 💡 圖片判斷邏輯開始 ---
+            # --- 💡 圖片判斷邏輯 ---
             specific_photo = f"{pid}.jpg"
             region_photo = REGION_DEFAULT_IMAGES.get(area)
             
-            # 第一優先：是否有專屬照片?
             if pid in HAS_PHOTO_PIDS:
+                # 第一優先：專屬照片
                 image_url = f"{GITHUB_BASE_URL}{specific_photo}?v=1"
-            # 第二優先：是否有區域預設圖?
             elif region_photo:
+                # 第二優先：區域預設圖
                 image_url = f"{GITHUB_BASE_URL}{region_photo}?v=1"
-            # 第三優先：用全域預設圖
             else:
+                # 第三優先：全域預設圖
                 image_url = DEFAULT_IMG_URL
-            # --------------------------
+            # ----------------------
 
             column = CarouselColumn(
                 thumbnail_image_url=image_url,
