@@ -14,33 +14,14 @@ headers = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
 }
 
-
-# 用來處理 Quick Reply 的區域分類
-# 區域分類字典 (用於 LINE Bot 選單邏輯)
-# 邏輯：北中南三區，剛好符合 LINE Carousel 上限 (10個)
+# --- 區域分類字典 (維持原樣) ---
 region_map = {
-    "北部": [
-        "F010", # 基隆
-        "F022", "F023", # 台北
-        "F011", "F012", "F013", # 新北
-        "F001"  # 宜蘭
-    ],
-    "中部": [
-        "F014", # 苗栗
-        "F019", "F018", "F020", "F021", # 台中
-        "F002", "F016", "F004", "F003"  # 南投
-    ],
-    "南部": [
-        "F015", "F017", # 嘉義
-        "F024", "F025", "F026", # 台南
-        "F007", "F009", "F008", # 高雄
-        "F005", "F006"  # 屏東
-    ]
+    "北部": ["F010", "F022", "F023", "F011", "F012", "F013", "F001"],
+    "中部": ["F014", "F019", "F018", "F020", "F021", "F002", "F016", "F004", "F003"],
+    "南部": ["F015", "F017", "F024", "F025", "F026", "F007", "F009", "F008", "F005", "F006"]
 }
 
-# 反向查詢 (如果需要從 PID 找區域名稱)
-# 你的 all_locations 已經有了 PID 對應名稱，這部分維持原樣即可
-# --- 1. 全台觀星地點清單 (共用) ---
+# --- 全台觀星地點清單 (維持原樣) ---
 all_locations = {
     "F010": "基隆大武崙砲台停車場", "F022": "陽明山國家公園小油坑停車場", "F023": "陽明山國家公園擎天崗",
     "F011": "五分山", "F012": "石碇雲海國小", "F013": "烏來風景特定區", "F014": "觀霧森林遊樂區",
@@ -55,7 +36,6 @@ all_locations = {
 # 功能 A：每週預報 (CSV 讀取)
 # ==========================================
 
-# 爬蟲函式 (更新 CSV 用)
 def scrape_weekly_table(pid, location_name):
     url = f"https://www.cwa.gov.tw/V8/C/L/StarView/MOD/Week/{pid}_Week_PC.html"
     try:
@@ -105,7 +85,6 @@ def scrape_weekly_table(pid, location_name):
         print(f"❌ 爬取錯誤 ({location_name}): {e}")
         return []
 
-# 更新 CSV 檔案 (可排程執行)
 def update_weekly_csv():
     file_name = "all_taiwan_star_forecast.csv"
     print(f"🚀 開始更新每週預報資料 (共 {len(all_locations)} 處)...")
@@ -125,7 +104,6 @@ def update_weekly_csv():
         final_df.to_csv(file_name, index=False, encoding="utf-8-sig")
         print(f"✅ CSV 更新完成！目前共有 {len(final_df)} 筆數據。")
 
-# 查詢函式 (回傳字串 - 格式已調整)
 def get_weekly_star_info(user_input):
     file_name = "all_taiwan_star_forecast.csv"
     try:
@@ -151,24 +129,30 @@ def get_weekly_star_info(user_input):
 
         all_blocks = []
         for item in data_list:
-            score = 1
             weather = item.get('天氣狀況', '未知')
             
-            # --- 分數計算 ---
-            if "晴" in weather: score += 2
-            try:
-                if int(item.get('最高溫', 0)) > 15: score += 1
-                if 20 <= int(item.get('最高溫', 0)) <= 25: score += 1
-            except: pass
-            try:
-                if int(re.findall(r'\d+', str(item.get('蒲福風級', '0')))[-1]) >= 5: score -= 1
-            except: pass
-            stars = "⭐" * max(1, min(5, score))
+            # --- 💡 修正後的核心判定邏輯 ---
+            # 優先順序：晴 (細算) > 多雲 (2星) > 其他 (1星)
+            
+            score = 1 # 預設 (陰/雨)
+            eval_msg = "" # 評價文字
+            
+            if "晴" in weather:
+                score = 3 # 基礎分 (原本是1+2)
+                # 只有晴天繼續判斷氣溫與風力
+                try:
+                    # 氣溫加分
+                    t_high = int(item.get('最高溫', 0))
+                    if t_high > 15: score += 1
+                    if 20 <= t_high <= 25: score += 1
+                except: pass
+                
+                try:
+                    # 風力扣分
+                    if int(re.findall(r'\d+', str(item.get('蒲福風級', '0')))[-1]) >= 5: score -= 1
+                except: pass
 
-            # --- 綜合評估 ---
-            if "晴" not in weather:
-                eval_msg = "今晚不適合觀星。"
-            else:
+                # 晴天時的綜合評估文字
                 try:
                     fl = int(item.get('體感最低溫', 20))
                     if fl < 15: eval_msg = "天氣寒冷，外出觀星建議多穿幾件保暖衣物！"
@@ -176,16 +160,25 @@ def get_weekly_star_info(user_input):
                     elif 20 <= fl <= 25: eval_msg = "天氣舒適，絕佳觀星日！"
                     else: eval_msg = "適合觀星的溫熱夜晚！"
                 except: eval_msg = "請注意現場天氣變化。"
-                
-                # 疊加風力警示
+
+                # 風力警示 (僅在晴天且風大時提醒)
                 try:
                     if int(re.findall(r'\d+', str(item.get('蒲福風級', '0')))[-1]) >= 5:
                         eval_msg += " (另外今晚風力較強，行經視線昏暗處請小心！)"
                 except: pass
-                
-                
 
-            # --- 格式組裝 (直列式) ---
+            elif "多雲" in weather:
+                score = 2 # 多雲固定 2 顆星
+                eval_msg = "雲量較多，可能影響觀星體驗，可碰碰運氣。"
+            
+            else:
+                score = 1 # 陰天或雨天固定 1 顆星
+                eval_msg = "今晚不適合觀星。"
+
+            # 星星上限 5 顆
+            stars = "⭐" * max(1, min(5, score))
+
+            # --- 格式組裝 ---
             res = [
                 f"📅 {item['date']} ({item['時間']})",
                 f"天氣：{weather}",
@@ -210,20 +203,33 @@ def get_weekly_star_info(user_input):
 def format_time_ranges(time_list):
     if not time_list: return ""
     hours = [int(t.split(':')[0]) for t in time_list]
-    processed = [h + 24 if h <= 5 and any(p >= 18 for p in hours) else h for h in hours]
+    
+    # 處理跨夜：將 00:00~05:00 轉換為 24, 25... 以便排序
+    # 邏輯：如果清單中同時存在「晚上(>=18)」和「凌晨(<=5)」，才把凌晨加 24
+    has_evening = any(h >= 18 for h in hours)
+    processed = [h + 24 if (h <= 5 and has_evening) else h for h in hours]
+    
+    # 💡 關鍵修正：必須排序！否則 25, 26 若在 18, 19 前面，會斷成兩截
+    processed.sort() 
     
     ranges = []
+    if not processed: return ""
+
     start_h = prev_h = processed[0]
     for i in range(1, len(processed)):
         curr = processed[i]
-        if curr == prev_h + 1: prev_h = curr
+        if curr == prev_h + 1:
+            prev_h = curr
         else:
+            # 結束一段連續時間
             ranges.append(f"{start_h%24:02d}:00-{(prev_h+1)%24:02d}:00")
             start_h = prev_h = curr
+    
+    # 加入最後一段
     ranges.append(f"{start_h%24:02d}:00-{(prev_h+1)%24:02d}:00")
+    
     return "、".join(ranges)
 
-# 查詢函式 (即時爬蟲)
 def get_impromptu_star_info(pid, location_name):
     url = f"https://www.cwa.gov.tw/V8/C/L/StarView/MOD/3hr/{pid}_3hr_PC.html"
     try:
@@ -249,21 +255,34 @@ def get_impromptu_star_info(pid, location_name):
                 for tid in time_ids:
                     if tid in h_attr: master_data[tid][title] = val
 
-        perfect_times, cloudy_times = [], []
-        for tid in time_ids[:24]:
+        # 收集今晚所有時段 (18:00 - 05:00)
+        night_status = [] # 格式: (時間字串, 天氣狀況)
+        
+        for tid in time_ids[:24]: # 只看最近 24 小時內的
             time_str = time_full_labels[tid].split(" ")[1]
             hour = int(time_str.split(":")[0])
             if hour >= 18 or hour <= 5:
                 w = master_data[tid].get("天氣狀況", "未知")
-                if "晴" in w: perfect_times.append(time_str)
-                elif "多雲" in w: cloudy_times.append(time_str)
+                night_status.append((time_str, w))
 
+        # 篩選特定天氣的時段
+        perfect_times = [t for t, w in night_status if "晴" in w]
+        cloudy_times = [t for t, w in night_status if "多雲" in w and "晴" not in w]
+        
+        # --- 💡 修正後的評估邏輯 ---
         if perfect_times:
+            # 只要有「晴」的時段，就優先顯示
             return f"🔭 【{location_name}】觀星建議：😊 \n太棒了，今晚最適合觀星的時段為：{format_time_ranges(perfect_times)}"
+        
         elif cloudy_times:
-            return f"🔭 【{location_name}】觀星建議：😐 \n今晚雲量較多，可碰運氣的時段為：{format_time_ranges(cloudy_times)}"
+            # 沒有晴，但有「多雲」
+            # 這裡只顯示提示語，也可以選擇列出多雲時段 format_time_ranges(cloudy_times)
+            return f"🔭 【{location_name}】觀星建議：😐 \n今晚各時段雲量均較多，可出門碰碰運氣! (時段: {format_time_ranges(cloudy_times)})"
+        
         else:
+            # 剩下的都是陰或雨
             return f"🔭 【{location_name}】觀星建議：😭 \n今晚不適合觀星，請好好睡覺。"
+
     except Exception as e:
         return f"❌ 系統錯誤: {str(e)}"
 
@@ -271,18 +290,18 @@ def get_impromptu_star_info(pid, location_name):
 # 主程式測試區
 # ==========================================
 if __name__ == "__main__":
-    # 1. 第一次執行建議跑一次更新，之後可註解掉
-    update_weekly_csv() 
+    # 1. 第一次執行建議跑一次更新
+    # update_weekly_csv() 
     
     print("\n--------- 模擬 LINE Bot 使用者操作 ---------")
     
-    # 使用者選擇情境 A：規劃未來
+    # 測試 A：未來一週 (測試星星邏輯)
     print("🔹 用戶點選：未來一週觀星指南 -> 選擇：陽明山小油坑")
     print(get_weekly_star_info("小油坑"))
     
     print("\n-------------------------------------------")
     
-    # 使用者選擇情境 B：臨時出發
+    # 測試 B：臨時出發 (測試時段合併與文字邏輯)
+    # 建議找一個現在是晚上的時間測試，或者找鹿林天文台這種容易有晴天的
     print("🔹 用戶點選：臨時興起去觀星 -> 選擇：鹿林天文台")
-    # 注意：這裡需要傳入 PID (F017)
     print(get_impromptu_star_info("F017", "鹿林天文台"))

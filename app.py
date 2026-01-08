@@ -1,18 +1,19 @@
 import os
+import json
 from flask import Flask, request, abort
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
 from linebot.models import (
     MessageEvent, TextMessage, TextSendMessage,
-    PostbackEvent, QuickReply, QuickReplyButton, MessageAction,
-    TemplateSendMessage, CarouselTemplate, CarouselColumn, PostbackAction
+    PostbackEvent, PostbackAction,
+    TemplateSendMessage, CarouselTemplate, CarouselColumn, 
+    FollowEvent, FlexSendMessage
 )
 from dotenv import load_dotenv
 
-
+# 引用你的爬蟲主程式
 from scraper_final import get_weekly_star_info, get_impromptu_star_info, all_locations
 
-# 載入環境變數
 load_dotenv()
 
 app = Flask(__name__)
@@ -20,34 +21,49 @@ app = Flask(__name__)
 channel_access_token = os.getenv('CHANNEL_ACCESS_TOKEN')
 channel_secret = os.getenv('CHANNEL_SECRET')
 
-if channel_access_token is None or channel_secret is None:
-    print("請確認 .env 檔案或 Render 環境變數是否設定正確！")
-
 line_bot_api = LineBotApi(channel_access_token)
 handler = WebhookHandler(channel_secret)
 
-# --- 資料準備：區域分類字典 ---
-# 這是為了讓使用者先選區域，再選地點
-region_map = {
-    "北部": [
-        "F010", "F022", "F023", "F011", "F012", "F013", "F014", "F001"
-    ],
-    "中部": [
-        "F019", "F018", "F020", "F021", "F002", "F016", "F004", "F003"
-    ],
-    "南部": [
-        "F015", "F017", "F024", "F025", "F026", "F007", "F009", "F008", "F005", "F006"
-    ]
+# --- 1. 載入簡介資料 ---
+SPOT_DESCRIPTIONS = {}
+if os.path.exists("spot_descriptions.json"):
+    with open("spot_descriptions.json", "r", encoding="utf-8") as f:
+        SPOT_DESCRIPTIONS = json.load(f)
+
+# --- 2. 圖片設定 (請修改這裡) ---
+
+# GitHub 圖片基地網址
+# 格式: https://raw.githubusercontent.com/帳號/專案名/main/images/
+GITHUB_BASE_URL = "https://raw.githubusercontent.com/ryan841267-crypto/star_watching/main/images/"
+
+# (A) 全域預設圖：用於「主選單」以及「完全找不到圖時」的備案
+# 建議你在 images 資料夾放一張 default.jpg，然後把下一行註解拿掉：
+DEFAULT_IMG_URL = f"{GITHUB_BASE_URL}default.jpg"
+# ⬇️ 暫時先用 Unsplash 當預設，等你上傳 default.jpg 後可以換掉上面那行
+# DEFAULT_IMG_URL = "https://images.unsplash.com/photo-1519681393784-d120267933ba?ixlib=rb-1.2.1&auto=format&fit=crop&w=1350&q=80"
+
+# (B) 區域預設圖：該區域的統一樣式
+REGION_DEFAULT_IMAGES = {
+    "北部": "north_default.jpg",
+    "中部": "central_default.jpg",
+    "南部": "south_default.jpg"
 }
 
-# 一張通用的星空圖，用於輪播卡片的封面 (你可以換成自己的圖片網址)
-DEFAULT_IMG_URL = "https://images.unsplash.com/photo-1519681393784-d120267933ba?ixlib=rb-1.2.1&auto=format&fit=crop&w=1350&q=80"
+# (C) 已有專屬照片的地點 PID
+# 如果你有上傳 F022.jpg (小油坑)，就把它加進這個清單
+HAS_PHOTO_PIDS = ["F022", "F017"] # 範例，你可以隨時新增
+
+# --- 3. 區域分類 ---
+region_map = {
+    "北部": ["F010", "F022", "F023", "F011", "F012", "F013", "F001"],
+    "中部": ["F014", "F019", "F018", "F020", "F021", "F002", "F016", "F004", "F003"],
+    "南部": ["F015", "F017", "F024", "F025", "F026", "F007", "F009", "F008", "F005", "F006"]
+}
 
 @app.route("/callback", methods=['POST'])
 def callback():
     signature = request.headers['X-Line-Signature']
     body = request.get_data(as_text=True)
-    app.logger.info("Request body: " + body)
     try:
         handler.handle(body, signature)
     except InvalidSignatureError:
@@ -56,98 +72,163 @@ def callback():
 
 @app.route("/", methods=['GET'])
 def home():
-    return "Starry Night Bot is Running!"
+    return "Star Bot Running"
 
 # ==========================================
-# 1. 處理「文字訊息」 (入口)
+# A. 處理「文字訊息」&「加好友」 (Flex Message 主選單)
 # ==========================================
-@handler.add(MessageEvent, message=TextMessage)
-def handle_message(event):
-    # 無論使用者打什麼，都先跳出「選擇區域」的快速選單
-    # 這也是未來 Rich Menu 按鈕可以觸發的動作
-    
-    quick_reply = QuickReply(items=[
-        QuickReplyButton(action=PostbackAction(label="北部地區", data="action=select_area&area=北部")),
-        QuickReplyButton(action=PostbackAction(label="中部地區", data="action=select_area&area=中部")),
-        QuickReplyButton(action=PostbackAction(label="南部地區", data="action=select_area&area=南部")),
-    ])
+def send_region_menu(reply_token):
+    # 使用全域預設圖作為主選單封面
+    flex_content = {
+        "type": "bubble",
+        "hero": {
+            "type": "image",
+            "url": DEFAULT_IMG_URL, # 使用預設圖
+            "size": "full",
+            "aspectRatio": "20:13",
+            "aspectMode": "cover",
+            "action": {
+                "type": "uri",
+                "uri": "http://linecorp.com/"
+            }
+        },
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": "🌌 觀星指南",
+                    "weight": "bold",
+                    "size": "xl",
+                    "color": "#ffffff"
+                },
+                {
+                    "type": "text",
+                    "text": "請選擇您想前往的觀星區域",
+                    "size": "sm",
+                    "color": "#aaaaaa",
+                    "wrap": True
+                }
+            ],
+            "backgroundColor": "#0f1c30"
+        },
+        "footer": {
+            "type": "box",
+            "layout": "vertical",
+            "spacing": "sm",
+            "contents": [
+                {
+                    "type": "button",
+                    "style": "primary",
+                    "height": "sm",
+                    "action": {"type": "postback", "label": "北部地區", "data": "action=select_area&area=北部"},
+                    "color": "#4e6d8d"
+                },
+                {
+                    "type": "button",
+                    "style": "primary",
+                    "height": "sm",
+                    "action": {"type": "postback", "label": "中部地區", "data": "action=select_area&area=中部"},
+                    "color": "#4e6d8d"
+                },
+                {
+                    "type": "button",
+                    "style": "primary",
+                    "height": "sm",
+                    "action": {"type": "postback", "label": "南部地區", "data": "action=select_area&area=南部"},
+                    "color": "#4e6d8d"
+                }
+            ],
+            "flex": 0,
+            "backgroundColor": "#0f1c30"
+        }
+    }
 
     line_bot_api.reply_message(
-        event.reply_token,
-        TextSendMessage(text="請選擇您想去的觀星區域：", quick_reply=quick_reply)
+        reply_token,
+        FlexSendMessage(alt_text="請選擇觀星區域", contents=flex_content)
     )
 
+@handler.add(FollowEvent)
+def handle_follow(event):
+    send_region_menu(event.reply_token)
+
+@handler.add(MessageEvent, message=TextMessage)
+def handle_message(event):
+    send_region_menu(event.reply_token)
+
 # ==========================================
-# 2. 處理「按鈕點擊」 (核心邏輯)
+# B. 處理「按鈕點擊」 (三層式圖片邏輯)
 # ==========================================
 @handler.add(PostbackEvent)
 def handle_postback(event):
-    # 解析回傳的 data (例如: "action=select_area&area=北部")
     data = event.postback.data
     params = dict(x.split('=') for x in data.split('&'))
     action = params.get('action')
 
-    # --- 情境 A: 使用者選了「區域」，要產生「地點輪播卡片」 ---
+    # 1. 選區域 -> 顯示地點輪播
     if action == 'select_area':
         area = params.get('area')
         pids = region_map.get(area, [])
-        
         columns = []
+        
         for pid in pids:
-            name = all_locations.get(pid, "未知地點")
+            name = all_locations.get(pid, "未知")
             
-            # 建立單張卡片 (CarouselColumn)
+            # --- 💡 圖片判斷邏輯開始 ---
+            specific_photo = f"{pid}.jpg"
+            region_photo = REGION_DEFAULT_IMAGES.get(area)
+            
+            # 第一優先：是否有專屬照片?
+            if pid in HAS_PHOTO_PIDS:
+                image_url = f"{GITHUB_BASE_URL}{specific_photo}?v=1"
+            # 第二優先：是否有區域預設圖?
+            elif region_photo:
+                image_url = f"{GITHUB_BASE_URL}{region_photo}?v=1"
+            # 第三優先：用全域預設圖
+            else:
+                image_url = DEFAULT_IMG_URL
+            # --------------------------
+
             column = CarouselColumn(
-                thumbnail_image_url=DEFAULT_IMG_URL, # 這裡放星空圖
+                thumbnail_image_url=image_url,
                 title=name,
                 text=f"{area}熱門觀星點",
                 actions=[
-                    # 按鈕 1: 查一週
-                    PostbackAction(
-                        label="📅 未來一週指南",
-                        data=f"action=weekly&pid={pid}&name={name}"
-                    ),
-                    # 按鈕 2: 查今晚
-                    PostbackAction(
-                        label="🚀 今晚時段分析",
-                        data=f"action=impromptu&pid={pid}&name={name}"
-                    )
+                    PostbackAction(label="未來一週指南", data=f"action=weekly&pid={pid}&name={name}"),
+                    PostbackAction(label="今晚觀星分析", data=f"action=impromptu&pid={pid}&name={name}"),
+                    PostbackAction(label="景點簡略介紹", data=f"action=desc&pid={pid}&name={name}")
                 ]
             )
             columns.append(column)
-
-        # 建立輪播訊息
-        carousel_template = CarouselTemplate(columns=columns)
-        template_message = TemplateSendMessage(
-            alt_text=f"請選擇{area}觀星地點",
-            template=carousel_template
-        )
-        
-        line_bot_api.reply_message(event.reply_token, template_message)
-
-    # --- 情境 B: 使用者選了「未來一週指南」 ---
-    elif action == 'weekly':
-        name = params.get('name')
-        # 顯示「查詢中...」讓用戶知道機器人活著 (選用)
-        # 呼叫 scraper.py 的函式
-        result = get_weekly_star_info(name)
         
         line_bot_api.reply_message(
             event.reply_token,
-            TextSendMessage(text=result)
+            TemplateSendMessage(alt_text=f'{area}觀星點', template=CarouselTemplate(columns=columns))
         )
 
-    # --- 情境 C: 使用者選了「今晚時段分析」 ---
+    # 2. 未來一週
+    elif action == 'weekly':
+        name = params.get('name')
+        res = get_weekly_star_info(name)
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=res))
+
+    # 3. 今晚時段
     elif action == 'impromptu':
         pid = params.get('pid')
         name = params.get('name')
-        
-        # 呼叫 scraper.py 的函式 (即時爬蟲)
-        result = get_impromptu_star_info(pid, name)
-        
+        res = get_impromptu_star_info(pid, name)
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=res))
+
+    # 4. 景點簡介
+    elif action == 'desc':
+        pid = params.get('pid')
+        name = params.get('name')
+        desc = SPOT_DESCRIPTIONS.get(pid, "暫無詳細資料")
         line_bot_api.reply_message(
-            event.reply_token,
-            TextSendMessage(text=result)
+            event.reply_token, 
+            TextSendMessage(text=f"📖 【{name}】\n\n{desc}")
         )
 
 if __name__ == "__main__":
