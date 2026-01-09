@@ -42,7 +42,6 @@ def fetch_file_api_data(data_id):
     
     try:
         # ✨ 魔法在這裡：impersonate="chrome110"
-        # 這會讓你的程式碼在網路上看起來像是一個真實的 Chrome 瀏覽器
         response = cffi_requests.get(
             url, 
             params=params, 
@@ -221,7 +220,7 @@ def get_impromptu_star_info(pid, location_name):
     except Exception as e: return f"❌ 解析錯誤: {e}"
 
 # ==========================================
-# 📅 功能 B：未來一週 (讀取 CSV)
+# 📅 功能 B：未來一週 (讀取 CSV + 修正版輸出)
 # ==========================================
 def get_weekly_star_info(location_name):
     file_name = "all_taiwan_star_forecast.csv"
@@ -256,8 +255,9 @@ def get_weekly_star_info(location_name):
                     if fl > 15: score += 1
                     if 20 <= fl <= 25: score += 1
                     
-                    if fl < 15: eval_msg = "天氣寒冷，建議多穿保暖衣物！"
-                    elif 15 <= fl < 20: eval_msg = "天氣稍涼，建議穿件薄外套！"
+                    if fl < 15: eval_msg = "天氣寒冷，外出觀星建議多穿保暖衣物！"
+                    elif 15 <= fl < 20: eval_msg = "天氣稍涼，外出觀星建議穿件薄外套！"
+                    elif 20 <= fl <= 25: eval_msg = "天氣舒適，絕佳觀星日！"
                     else: eval_msg = "適合觀星的溫熱夜晚！"
                 except: eval_msg = "請注意氣溫變化。"
                 
@@ -269,7 +269,7 @@ def get_weekly_star_info(location_name):
 
             elif "多雲" in wx:
                 score = 2
-                eval_msg = "雲量較多，可碰運氣。"
+                eval_msg = "今晚雲量較多，可碰運氣。"
             else:
                 score = 1
                 eval_msg = "今晚不適合觀星。"
@@ -277,17 +277,21 @@ def get_weekly_star_info(location_name):
             score = max(1, min(5, score))
             stars = "⭐" * score
             
+            # 修正後的 f-string (補上了引號)
             res = [
-                f"📅 {item['date']} (晚)",
+                f"📅 {item['date']} (晚上)",
                 f"天氣: {wx}",
                 f"氣溫: {item['最低溫']}~{item['最高溫']}°C",
+                f"體感: {item.get('體感最低溫', '?')}~{item.get('體感最高溫', '?')}°C",
                 f"降雨: {item['降雨機率']}",
-                f"指數: {stars}",
-                f"📝 {eval_msg}"
+                f"觀星推薦指數: {stars}",
+                f"📝綜合評估: {eval_msg}"
             ]
             blocks.append("\n".join(res))
             
-        return f"🌌 【{location_name}】未來一週預報\n----------------------\n" + "\n\n".join(blocks)
+        header = f"🌌 【{location_name}】未來一週觀星指南\n"
+        tail = "\n\n----------------\n🔔 溫馨提醒：當日可再確認晴朗的晚間時段哦！"
+        return header + "----------------------\n" + "\n\n".join(blocks) + tail
 
     except Exception as e:
         return f"❌ 讀取資料失敗，正在重新抓取...({e})"
