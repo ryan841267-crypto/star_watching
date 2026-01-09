@@ -4,18 +4,72 @@ import time
 import sys
 import re
 import os
+import urllib3 # 新增這個庫來控制 IPv4
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta, timezone
 
 # 修正 Windows 輸出編碼
 sys.stdout.reconfigure(encoding='utf-8')
 
-# --- 關鍵修正：加上 Referer 偽裝成是從氣象局網站發出的請求 ---
+# ==========================================
+# 核心修正：網路連線層 (Bypass Anti-Scraping)
+# ==========================================
+
+# 1. 強制使用 IPv4 (解決部分雲端平台如 Heroku/Render 連線氣象局過慢或失敗的問題)
+urllib3.util.connection.HAS_IPV6 = False
+
+# 2. 偽裝 Headers (加入 X-Requested-With 模擬 AJAX)
 headers = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     "Referer": "https://www.cwa.gov.tw/V8/C/L/StarView/StarView.html",
-    "Accept-Language": "zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7"
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+    "Accept-Language": "zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7",
+    "X-Requested-With": "XMLHttpRequest",  # 重要：告訴伺服器這是程式內部呼叫
+    "Sec-Fetch-Dest": "empty",
+    "Sec-Fetch-Mode": "cors",
+    "Sec-Fetch-Site": "same-origin",
+    "Connection": "keep-alive"
 }
+
+# 3. 建立全域 Session (用來保存 Cookies)
+session = requests.Session()
+session.headers.update(headers)
+
+def fetch_cwa_data(url):
+    """
+    專門用來抓取氣象署資料的函式，包含自動取得 Cookie 的邏輯
+    """
+    try:
+        # 步驟 A: 如果 session 裡還沒有 cookie，先去主頁面晃一圈拿到 cookie
+        if not session.cookies:
+            # print("🍪 正在初始化 Cookies...")
+            # 這是觀星的主頁面，拜訪它會拿到 Session ID
+            home_url = "https://www.cwa.gov.tw/V8/C/L/StarView/StarView.html"
+            session.get(home_url, timeout=10)
+        
+        # 步驟 B: 帶著 cookie 去抓真正的資料
+        response = session.get(url, timeout=10)
+        
+        # 步驟 C: 檢查狀態碼
+        if response.status_code == 200:
+            response.encoding = 'utf-8'
+            return response
+        elif response.status_code == 404:
+            print(f"❌ 404 Not Found: {url} (可能是 IP 被封鎖或網址錯誤)")
+            return None
+        else:
+            print(f"⚠️ Error {response.status_code}: {url}")
+            return None
+            
+    except Exception as e:
+        print(f"❌ 連線例外錯誤: {e}")
+        # 如果發生錯誤，清除 cookies 下次重試
+        session.cookies.clear()
+        return None
+
+# ==========================================
+# 資料定義區
+# ==========================================
 
 # --- 區域分類字典 ---
 region_map = {
@@ -41,10 +95,13 @@ all_locations = {
 
 def scrape_weekly_table(pid, location_name):
     url = f"https://www.cwa.gov.tw/V8/C/L/StarView/MOD/Week/{pid}_Week_PC.html"
+    
+    # 改用新的抓取函式
+    response = fetch_cwa_data(url)
+    
+    if not response: return []
+    
     try:
-        response = requests.get(url, headers=headers, timeout=10)
-        if response.status_code != 200: return []
-        response.encoding = 'utf-8'
         soup = BeautifulSoup(response.text, "html.parser")
         
         thead = soup.find("thead")
@@ -138,24 +195,44 @@ def get_weekly_star_info(user_input):
             
             if "晴" in weather:
                 score = 3
+                
+                # --- [修改部分開始] 氣溫評分邏輯優化 ---
                 try:
-                    t_str = str(item.get('最高溫', 0)).replace("..", "")
-                    t_high = int(float(t_str)) if t_str.isdigit() else 20
-                    if t_high > 15: score += 1
-                    if 20 <= t_high <= 25: score += 1
-                except: pass
+                    # 1. 改抓「體感最低溫」，若無資料則預設為空字串 (避免預設 0 或 20 造成誤判)
+                    t_str = str(item.get('體感最低溫', '')).replace("..", "")
+                    
+                    # 2. 判斷是否為有效數字 (支援負數 -5 與小數 20.5)
+                    # lstrip('-') 是為了讓負號也能通過 isdigit 檢查
+                    if t_str.replace('.', '', 1).lstrip('-').isdigit():
+                        t_val = float(t_str)
+                        
+                        # 3. 只有在資料有效時，才進行加分
+                        if t_val > 15: score += 1      # 體感大於 15 度，加 1 星 (溫暖)
+                        if 20 <= t_val <= 25: score += 1 # 體感舒適區間，再加 1 星
+                    
+                    # 若無資料 (else)，score 保持不變，不會憑空加星
+                except:
+                    pass
+                # --- [修改部分結束] ---
+
+                # 風速扣分邏輯
                 try:
                     wind_str = str(item.get('蒲福風級', '0'))
                     wind_matches = re.findall(r'\d+', wind_str)
                     if wind_matches and int(wind_matches[-1]) >= 5: score -= 1
                 except: pass
+                
+                # 評語邏輯 (這部分原本就是看體感最低溫，維持即可，稍微優化解析)
                 try:
-                    fl_str = str(item.get('體感最低溫', 20)).replace("..", "")
-                    fl = int(float(fl_str)) if fl_str.replace('.', '', 1).isdigit() else 20
-                    if fl < 15: eval_msg = "天氣寒冷，建議多穿保暖衣物！"
-                    elif 15 <= fl < 20: eval_msg = "天氣稍涼，建議穿件薄外套！"
-                    elif 20 <= fl <= 25: eval_msg = "天氣舒適，絕佳觀星日！"
-                    else: eval_msg = "適合觀星的溫熱夜晚！"
+                    fl_str = str(item.get('體感最低溫', '')).replace("..", "")
+                    if fl_str.replace('.', '', 1).lstrip('-').isdigit():
+                        fl = float(fl_str)
+                        if fl < 15: eval_msg = "天氣寒冷，建議多穿保暖衣物！"
+                        elif 15 <= fl < 20: eval_msg = "天氣稍涼，建議穿件薄外套！"
+                        elif 20 <= fl <= 25: eval_msg = "天氣舒適，絕佳觀星日！"
+                        else: eval_msg = "適合觀星的溫熱夜晚！"
+                    else:
+                        eval_msg = "請注意現場天氣變化。" # 無資料時的備用評語
                 except: eval_msg = "請注意現場天氣變化。"
 
             elif "多雲" in weather:
@@ -181,7 +258,6 @@ def get_weekly_star_info(user_input):
         tail = "\n\n----------------\n🔔 溫馨提醒：山區天氣多變，出發前請再次確認！\n\n"
         return header + "\n\n----------------\n".join(all_blocks) + tail
     except Exception as e: return f"❌ 錯誤：{str(e)}"
-
 
 # ==========================================
 # 功能 B：臨時興起 (72hr 即時爬蟲 - 修復版)
@@ -219,13 +295,14 @@ def format_time_ranges(time_list):
 def get_impromptu_star_info(pid, location_name):
     # 加上亂數參數避免快取
     url = f"https://www.cwa.gov.tw/V8/C/L/StarView/MOD/3hr/{pid}_3hr_PC.html?t={int(time.time())}"
-    try:
-        resp = requests.get(url, headers=headers, timeout=10)
-        resp.encoding = 'utf-8'
-        
-        if resp.status_code != 200:
-            return f"❌ 無法取得資料 (狀態碼: {resp.status_code})，請稍後再試。"
+    
+    # 改用新的抓取函式
+    resp = fetch_cwa_data(url)
 
+    if not resp:
+        return f"❌ 無法取得資料，請稍後再試。"
+        
+    try:
         raw_html = f"<table>{resp.text}</table>" if "<table" not in resp.text else resp.text
         soup = BeautifulSoup(raw_html, "html.parser")
         
@@ -325,6 +402,5 @@ if __name__ == "__main__":
     print("\n-------------------------------------------")
     
     # 測試 B：臨時出發 (測試時段合併與文字邏輯)
-    # 建議找一個現在是晚上的時間測試，或者找鹿林天文台這種容易有晴天的
     print("🔹 用戶點選：臨時興起去觀星 -> 選擇：鹿林天文台")
     print(get_impromptu_star_info("F017", "鹿林天文台"))
