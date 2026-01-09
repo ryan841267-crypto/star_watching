@@ -46,7 +46,7 @@ def run_diagnostic():
         print(f"❌ [IP 檢查] 失敗: {e}")
 
     # 2. 測試氣象署連線 (使用先前測試的網址)
-    target_url = "https://www.cwa.gov.tw/V8/C/L/StarView/MOD/3hr/F014_3hr_PC.html?t=1767924175"
+    target_url = "https://www.cwa.gov.tw/V8/C/L/StarView/MOD/Week/F017_Week_PC.html"
     
     # 模擬完整 Headers
     headers = {
