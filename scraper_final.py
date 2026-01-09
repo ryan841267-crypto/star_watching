@@ -227,8 +227,8 @@ def get_weekly_star_info(user_input):
                     fl_str = str(item.get('體感最低溫', '')).replace("..", "")
                     if fl_str.replace('.', '', 1).lstrip('-').isdigit():
                         fl = float(fl_str)
-                        if fl < 15: eval_msg = "天氣寒冷，建議多穿保暖衣物！"
-                        elif 15 <= fl < 20: eval_msg = "天氣稍涼，建議穿件薄外套！"
+                        if fl < 15: eval_msg = "天氣寒冷，外出觀星建議多穿保暖衣物！"
+                        elif 15 <= fl < 20: eval_msg = "天氣稍涼，外出觀星建議穿件薄外套！"
                         elif 20 <= fl <= 25: eval_msg = "天氣舒適，絕佳觀星日！"
                         else: eval_msg = "適合觀星的溫熱夜晚！"
                     else:

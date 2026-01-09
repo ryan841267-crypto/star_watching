@@ -1,6 +1,5 @@
 import os
 import json
-import requests  # 用於診斷工具
 from flask import Flask, request, abort
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
@@ -12,77 +11,21 @@ from linebot.models import (
 )
 from dotenv import load_dotenv
 
-# 引用你的爬蟲主程式 (確保 scraper_final.py 在同一個資料夾)
+# 引用你的爬蟲主程式
 from scraper_final import get_weekly_star_info, get_impromptu_star_info, all_locations
 
 load_dotenv()
 
 app = Flask(__name__)
 
-# 讀取環境變數
 channel_access_token = os.getenv('CHANNEL_ACCESS_TOKEN')
 channel_secret = os.getenv('CHANNEL_SECRET')
-
-if not channel_access_token or not channel_secret:
-    print("⚠️ 警告：未讀取到 LINE Bot 設定，請檢查 .env 檔案")
 
 line_bot_api = LineBotApi(channel_access_token)
 handler = WebhookHandler(channel_secret)
 
 # ==========================================
-# 0. 伺服器連線診斷工具 (輸入 "debug" 觸發)
-# ==========================================
-def run_diagnostic():
-    print("\n" + "="*40)
-    print("🚀 [Debug] 收到 debug 指令，開始診斷連線...")
-    
-    # 1. 檢查伺服器身分 (IP/ISP)
-    try:
-        ip_data = requests.get("https://ipinfo.io/json", timeout=5).json()
-        print(f"👉 [IP 檢查] Server IP: {ip_data.get('ip')}")
-        print(f"👉 [IP 檢查] Location:  {ip_data.get('city')}, {ip_data.get('country')}")
-        print(f"👉 [IP 檢查] ISP (Org): {ip_data.get('org')}") 
-    except Exception as e:
-        print(f"❌ [IP 檢查] 失敗: {e}")
-
-    # 2. 測試氣象署連線 (使用先前測試的網址)
-    target_url = "https://www.cwa.gov.tw/V8/C/L/StarView/MOD/3hr/F014_3hr_PC.html?t=1767924175"
-    
-    # 模擬完整 Headers
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Referer": "https://www.cwa.gov.tw/V8/C/L/StarView/StarView.html",
-        "X-Requested-With": "XMLHttpRequest"
-    }
-
-    try:
-        session = requests.Session()
-        session.headers.update(headers)
-
-        # 先去首頁拿 Cookie
-        session.get("https://www.cwa.gov.tw/V8/C/L/StarView/StarView.html", timeout=10)
-        
-        # 發送請求
-        print(f"👉 [連線測試] 嘗試抓取: {target_url}")
-        response = session.get(target_url, timeout=10)
-        print(f"👉 [連線測試] 狀態碼: {response.status_code}")
-
-        if response.status_code == 404:
-            print("❌ [連線測試] 失敗 (404)。伺服器回傳內容如下：")
-            print("-" * 20 + " HTML Start " + "-" * 20)
-            print(response.text[:500]) 
-            print("-" * 20 + " HTML End " + "-" * 20)
-        elif response.status_code == 200:
-            print("✅ [連線測試] 成功！內容長度:", len(response.text))
-        else:
-            print(f"⚠️ [連線測試] 其他狀態: {response.status_code}")
-
-    except Exception as e:
-        print(f"💥 [連線測試] 程式崩潰: {e}")
-    print("="*40 + "\n")
-
-# ==========================================
-# 1. 資料與設定區
+# 0. 資料與設定區
 # ==========================================
 
 # (A) 載入簡介資料
@@ -91,7 +34,7 @@ if os.path.exists("spot_descriptions.json"):
     with open("spot_descriptions.json", "r", encoding="utf-8") as f:
         SPOT_DESCRIPTIONS = json.load(f)
 
-# (B) 圖片設定
+# (B) 圖片設定 (已根據你的 GitHub 設定修正)
 GITHUB_BASE_URL = "https://raw.githubusercontent.com/ryan841267-crypto/star_watching/main/images/"
 
 # 全域預設圖 (主選單封面)
@@ -104,7 +47,7 @@ REGION_DEFAULT_IMAGES = {
     "南部": "south_default.jpg"
 }
 
-# 已有專屬照片的地點 PID (需手動維護)
+# 已有專屬照片的地點 PID (這裡只留這兩個範例，你可以自己增減)
 HAS_PHOTO_PIDS = [""] 
 
 # (C) 歌詞與彩蛋設定
@@ -131,6 +74,27 @@ chorus
 願妳先找到溫柔 有人包紮傷口也擋住寂寞
 謝謝妳陪我陪愛聽雨追風
 
+verse
+用三年去維繫感情
+用三秒鐘結束關係
+剩回憶能回去 能溫習 能把妳抱緊
+就算愛燒成灰燼揚起變烏雲
+
+chorus
+眼底星空 流星開始墜落
+每一滴眼淚說著妳要好好走
+轉過身跌入黑洞 看著天長地久變兩種漂泊
+男人流淚比流血加倍心痛
+眼底星空 流星跌落手中
+我緊緊握著抬頭向上天祈求
+願妳先找到溫柔 有人包紮傷口也擋住寂寞
+謝謝妳陪我陪愛聽雨追風
+
+眼底星空 流星跌落手中
+我緊緊握著抬頭向上天祈求
+願妳先找到溫柔 有人包紮傷口也擋住寂寞
+謝謝妳陪我陪愛聽雨追風
+
 outro
 謝謝他給你給愛另一個星空"""
 
@@ -145,10 +109,6 @@ region_map = {
     "中部": ["F014", "F019", "F018", "F020", "F021", "F002", "F016", "F004", "F003"],
     "南部": ["F015", "F017", "F024", "F025", "F026", "F007", "F009", "F008", "F005", "F006"]
 }
-
-# ==========================================
-# 2. Flask 路由
-# ==========================================
 
 @app.route("/callback", methods=['POST'])
 def callback():
@@ -165,7 +125,7 @@ def home():
     return "Star Bot Running"
 
 # ==========================================
-# 3. 產生選單函式 (Flex Message)
+# A. 產生選單函式 (只回傳物件，不發送)
 # ==========================================
 def get_main_menu_flex():
     flex_content = {
@@ -233,7 +193,7 @@ def get_main_menu_flex():
     return FlexSendMessage(alt_text="請選擇觀星區域", contents=flex_content)
 
 # ==========================================
-# 4. 處理「加好友」&「文字訊息」
+# B. 處理「加好友」&「文字訊息」 (核心邏輯)
 # ==========================================
 
 @handler.add(FollowEvent)
@@ -244,30 +204,24 @@ def handle_follow(event):
 
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
-    user_text = event.message.text.strip()
+    user_text = event.message.text
     reply_list = []
     
-    # --- Debug 指令專區 ---
-    if user_text.lower() == "debug":
-        run_diagnostic()
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="🛠️ 診斷指令已發送！\n請前往 Render/Heroku 後台查看 Logs。"))
-        return
-    # ---------------------
-
-    # 1. 檢查是否觸發彩蛋
+    # 1. 檢查是否觸發彩蛋 (只要句子裡包含關鍵字就觸發)
     for keyword, response_text in EASTER_EGGS.items():
         if keyword in user_text:
             reply_list.append(TextSendMessage(text=response_text))
-            break 
+            break # 找到一個關鍵字就停，避免一次回太多
     
     # 2. 無論有無觸發彩蛋，最後都要接上主選單
     menu_message = get_main_menu_flex()
     reply_list.append(menu_message)
     
+    # 3. 發送 (可能是 [選單] 或是 [文字, 選單])
     line_bot_api.reply_message(event.reply_token, reply_list)
 
 # ==========================================
-# 5. 處理「按鈕點擊」 (三層式圖片邏輯)
+# C. 處理「按鈕點擊」 (三層式圖片邏輯)
 # ==========================================
 @handler.add(PostbackEvent)
 def handle_postback(event):
@@ -281,8 +235,7 @@ def handle_postback(event):
         pids = region_map.get(area, [])
         columns = []
         
-        # 為了避免輪播圖太多導致 Error，限制最多顯示 10 個 (Line 限制)
-        for pid in pids[:10]:
+        for pid in pids:
             name = all_locations.get(pid, "未知")
             
             # --- 💡 圖片判斷邏輯 ---
@@ -341,5 +294,4 @@ def handle_postback(event):
         )
 
 if __name__ == "__main__":
-    port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port)
+    app.run()
