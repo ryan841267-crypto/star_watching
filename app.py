@@ -48,7 +48,7 @@ REGION_DEFAULT_IMAGES = {
 }
 
 # 已有專屬照片的地點 PID (這裡只留這兩個範例，你可以自己增減)
-HAS_PHOTO_PIDS = ["F022"] 
+HAS_PHOTO_PIDS = [""] 
 
 # (C) 歌詞與彩蛋設定
 LYRICS_STAR_EYES = """看著夜晚的繁星，來首眼底星空吧!
