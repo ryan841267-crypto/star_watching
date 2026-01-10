@@ -8,20 +8,19 @@ from linebot.models import (
     PostbackEvent, PostbackAction,
     TemplateSendMessage, CarouselTemplate, CarouselColumn, 
     FollowEvent, FlexSendMessage,
-    # [新增] 引入 QuickReply 與位置訊息相關模組
     QuickReply, QuickReplyButton, LocationAction, LocationMessage
 )
 from dotenv import load_dotenv
 
 # 引用你的爬蟲主程式
-# [修改] 新增引用 LOCATION_COORDS 和 get_real_walking_info
+# [修改] 改為引用通用的 get_route_info 函式
 from scraper_final import (
     get_weekly_star_info, 
     get_impromptu_star_info, 
     all_locations, 
     update_weekly_csv,
     LOCATION_COORDS,       # 座標資料
-    get_real_walking_info  # 計算邏輯
+    get_route_info         # [修改] 改用這個通用的路徑計算函式
 )
 
 
@@ -309,8 +308,8 @@ def handle_postback(event):
         # 3. 回覆介紹 + 引導傳送位置的 QuickReply
         reply_text = (
             f"📖 【{name}】\n\n{desc}\n\n"
-            f"想知道步行過去要多久嗎？\n"
-            f"請點擊下方按鈕👇"
+            f"想知道現在出發預估到達時間嗎?\n"
+            f"👇 請點擊下方按鈕！"
         )
         
         line_bot_api.reply_message(
@@ -318,17 +317,17 @@ def handle_postback(event):
             TextSendMessage(
                 text=reply_text,
                 quick_reply=QuickReply(items=[
-                    QuickReplyButton(action=LocationAction(label="📍 傳送目前位置"))
+                    QuickReplyButton(action=LocationAction(label="傳送目前位置"))
                 ])
             )
         )
 
-# [新增] D. 處理位置訊息 (計算距離與導航)
+# [修改] D. 處理位置訊息 (計算開車、大眾運輸、走路)
 @handler.add(MessageEvent, message=LocationMessage)
 def handle_location_message(event):
     user_id = event.source.user_id
     
-    # 1. 檢查使用者是否有正在進行的查詢
+    # 1. 檢查 Session
     session_data = USER_SESSION.get(user_id)
     if not session_data:
         line_bot_api.reply_message(
@@ -343,45 +342,65 @@ def handle_location_message(event):
     user_lat = event.message.latitude
     user_lng = event.message.longitude
     
-    # 3. 取得目的地座標 (從 scraper_final 匯入的資料庫查)
+    # 3. 查座標
     dest_coords = LOCATION_COORDS.get(target_pid)
     
     if not dest_coords:
         line_bot_api.reply_message(
             event.reply_token,
-            TextSendMessage(text=f"抱歉，系統暫時缺少【{target_name}】的座標資料，無法計算距離。")
+            TextSendMessage(text=f"抱歉，系統暫時缺少【{target_name}】的座標資料。")
         )
-        # 清除 Session
         if user_id in USER_SESSION: del USER_SESSION[user_id]
         return
 
-    # 4. 呼叫 Google Distance Matrix API (呼叫 scraper_final 裡的函式)
-    dist_text, time_text = get_real_walking_info(
-        user_lat, user_lng,
-        dest_coords[0], dest_coords[1]
-    )
+    # 4. 分別計算三種模式 (開車、大眾運輸、走路)
+    results = []
     
-    if time_text:
-        # 產生 Google Maps 導航連結 (使用官方 Universal URL 格式)
+    # A. 開車 (Driving)
+    dist_drive, time_drive = get_route_info(user_lat, user_lng, dest_coords[0], dest_coords[1], "driving")
+    if time_drive: 
+        results.append(f"開車: {time_drive} ({dist_drive})")
+    
+    # B. 大眾運輸 (Transit)
+    dist_transit, time_transit = get_route_info(user_lat, user_lng, dest_coords[0], dest_coords[1], "transit")
+    if time_transit: 
+        results.append(f"大眾運輸: {time_transit}")
+    else:
+        # 山區查不到公車時，可以不顯示或顯示提示
+        results.append(f"大眾運輸: 暫無路線")
+        pass
+    
+    # C. 走路 (Walking)
+    dist_walk, time_walk = get_route_info(user_lat, user_lng, dest_coords[0], dest_coords[1], "walking")
+    if time_walk: 
+        results.append(f"走路: {time_walk}")
+
+    # 5. 組合訊息
+    if results:
+        # 產生 Google Maps 導航連結
+        # 預設 travelmode=driving (開車)，因為觀星大多開車
         map_url = (
             f"https://www.google.com/maps/dir/?api=1"
             f"&origin={user_lat},{user_lng}"
             f"&destination={dest_coords[0]},{dest_coords[1]}"
-            f"&travelmode=walking"
+            f"&travelmode=driving"
         )
-
-        # 你的指定格式回覆
+        
+        info_text = "\n".join(results)
+        
         reply_msg = (
-            f"🚶 目前步行至【{target_name}】只要 {time_text} 哦，揪團走路去觀星吧!\n\n\n"
-            f"詳情請查看下方導航連結!\n"
+            f"🏁 抵達【{target_name}】的預估時間：\n\n"
+            f"{info_text}\n\n"
+            f"揪團去觀星吧！\n"
+            f"👇 點擊開啟Google Maps導航\n"
             f"{map_url}"
         )
     else:
-        reply_msg = "⚠️ 計算失敗，可能是 Google API 連線問題或距離太遠無法步行到達。"
+        reply_msg = "⚠️ 計算失敗，可能是距離太遠或 Google API 連線問題。"
 
     line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply_msg))
     
-    # 5. 任務結束，清除記憶
+    # 6. 清除記憶
     if user_id in USER_SESSION:
         del USER_SESSION[user_id]
 

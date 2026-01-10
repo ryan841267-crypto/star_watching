@@ -125,7 +125,15 @@ def find_location_data(json_data, target_pid):
     except: return None
 
 # [新增] Google Maps Distance Matrix API 呼叫函式
-def get_real_walking_info(origin_lat, origin_lng, dest_lat, dest_lng):
+# [修改] 將原本的 get_real_walking_info 改名並升級
+def get_route_info(origin_lat, origin_lng, dest_lat, dest_lng, mode="driving"):
+    """
+    mode 參數支援: 
+    - driving (開車)
+    - walking (走路)
+    - bicycling (自行車/騎行)
+    - transit (大眾運輸 - 需特定城市支援)
+    """
     if not GOOGLE_MAPS_KEY:
         return None, None
         
@@ -133,7 +141,7 @@ def get_real_walking_info(origin_lat, origin_lng, dest_lat, dest_lng):
     params = {
         "origins": f"{origin_lat},{origin_lng}",
         "destinations": f"{dest_lat},{dest_lng}",
-        "mode": "walking",
+        "mode": mode,  # 這裡變成變數了
         "language": "zh-TW",
         "key": GOOGLE_MAPS_KEY
     }
@@ -142,10 +150,10 @@ def get_real_walking_info(origin_lat, origin_lng, dest_lat, dest_lng):
         if res['status'] == 'OK':
             element = res['rows'][0]['elements'][0]
             if element['status'] == 'OK':
-                # 回傳格式: (距離文字 例如"1.5公里", 時間文字 例如"25分鐘")
+                # 回傳: (距離, 時間)
                 return element['distance']['text'], element['duration']['text']
     except Exception as e:
-        print(f"API Error: {e}")
+        print(f"API Error ({mode}): {e}")
     return None, None
 
 # ==========================================
