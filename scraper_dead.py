@@ -391,7 +391,7 @@ def get_impromptu_star_info(pid, location_name):
 
 if __name__ == "__main__":
     # 1. 第一次執行建議跑一次更新
-    # update_weekly_csv() 
+    update_weekly_csv() 
     
     print("\n--------- 模擬 LINE Bot 使用者操作 ---------")
     

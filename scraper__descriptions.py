@@ -4,6 +4,8 @@ import time
 import sys
 from bs4 import BeautifulSoup
 
+# 用來爬景點簡介，現已無法用render伺服器爬取。
+
 # 修正 Windows 輸出編碼
 sys.stdout.reconfigure(encoding='utf-8')
 
@@ -11,7 +13,7 @@ sys.stdout.reconfigure(encoding='utf-8')
 from scraper_final import all_locations
 
 def scrape_description(pid, location_name):
-    # 💡 修正後的正確網址：去掉 _PC
+
     url = f"https://www.cwa.gov.tw/V8/C/L/StarView/MOD/Detail/{pid}_Detail.html"
     
     headers = {
@@ -58,10 +60,12 @@ if __name__ == "__main__":
     for pid, name in all_locations.items():
         desc = scrape_description(pid, name)
         descriptions[pid] = desc
-        # 印出前 10 個字檢查有沒有抓對
+        # 印出進度條：只印前10個字，確認有抓到東西就好，不用印整篇
         print(f" ✅ {name}: {desc[:10]}...") 
-        time.sleep(0.5)
-        
+        time.sleep(0.5) # 當個有禮貌的爬蟲，每次休息0.5秒。
+
+    # 開啟一個新檔案，叫做 "spot_descriptions.json"
+    # "w" 代表寫入模式 (write)，encoding="utf-8" 是為了支援中文字    
     with open("spot_descriptions.json", "w", encoding="utf-8") as f:
         json.dump(descriptions, f, ensure_ascii=False, indent=4)
         

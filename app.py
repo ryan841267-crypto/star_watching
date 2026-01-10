@@ -14,13 +14,24 @@ from dotenv import load_dotenv
 # 引用你的爬蟲主程式
 from scraper_final import get_weekly_star_info, get_impromptu_star_info, all_locations, update_weekly_csv
 
+
+# 先去翻閱「機密筆記本」（.env 檔），把裡面寫的密碼讀進記憶體裡。
 load_dotenv()
 
+# 建立一個 Flask 應用程式實例。
 app = Flask(__name__)
 
+# 從剛才載入的環境變數中，抓出 Token 和 Secret 這兩把關鍵鑰匙。
 channel_access_token = os.getenv('CHANNEL_ACCESS_TOKEN')
 channel_secret = os.getenv('CHANNEL_SECRET')
 
+# line_bot_api：使用的是 Access Token。
+# 任務：負責主動做事。
+# 例如：回覆訊息 (reply_message)、推播訊息 (push_message)、或是取得使用者大頭貼。
+
+# handler (負責「聽」)：使用的是 Secret。
+# 負責接收與分配。
+# 當 Line 傳訊息過來（Webhook），它負責檢查安全簽章，然後判斷這是「文字訊息」還是「貼圖訊息」，再指派給對應的函式去處理。
 line_bot_api = LineBotApi(channel_access_token)
 handler = WebhookHandler(channel_secret)
 
@@ -105,16 +116,20 @@ region_map = {
     "南部": ["F015", "F017", "F024", "F025", "F026", "F007", "F009", "F008", "F005", "F006"]
 }
 
+# Line 傳過來的每一則訊息，都會在信封（HTTP Header）上貼一個防偽標籤，叫做 X-Line-Signature。
+# 這個標籤是用 Channel Secret 加密算出來的。
+# handler（守門員）拿著剛剛收到的「信件內容 (body)」和「防偽標籤 (signature)」，進行複雜的密碼學比對。
 @app.route("/callback", methods=['POST'])
 def callback():
     signature = request.headers['X-Line-Signature']
-    body = request.get_data(as_text=True)
+    body = request.get_data(as_text=True) # 確保是純文字字串，因為後面的驗證函式需要吃文字。
     try:
         handler.handle(body, signature)
     except InvalidSignatureError:
         abort(400)
     return 'OK'
 
+# 測試通道
 @app.route("/", methods=['GET'])
 def home():
     return "Star Bot Running"
