@@ -8,7 +8,8 @@ from linebot.models import (
     PostbackEvent, PostbackAction,
     TemplateSendMessage, CarouselTemplate, CarouselColumn, 
     FollowEvent, FlexSendMessage,
-    QuickReply, QuickReplyButton, LocationAction, LocationMessage
+    QuickReply, QuickReplyButton, LocationAction, LocationMessage,
+    StickerMessage
 )
 from dotenv import load_dotenv
 
@@ -238,6 +239,15 @@ def handle_message(event):
     
     line_bot_api.reply_message(event.reply_token, reply_list)
 
+# [新增] 處理貼圖訊息：直接回傳主選單
+@handler.add(MessageEvent, message=StickerMessage)
+def handle_sticker_message(event):
+    # 直接呼叫你原本寫好的函式，取得那個漂亮的選單
+    menu_message = get_main_menu_flex()
+    
+    # 回覆給使用者
+    line_bot_api.reply_message(event.reply_token, menu_message)
+
 # ==========================================
 # C. 處理按鈕
 # ==========================================
@@ -390,9 +400,9 @@ def handle_location_message(event):
         
         reply_msg = (
             f"🏁 抵達【{target_name}】的預估時間：\n\n"
-            f"===============\n"
+            f"====================\n"
             f"{info_text}\n"
-            f"===============\n\n"
+            f"====================\n\n"
             f"👇 點擊開啟Google Maps導航，揪團去觀星吧！\n"
             f"{map_url}"
         )
