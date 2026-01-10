@@ -7,22 +7,12 @@ from linebot.models import (
     MessageEvent, TextMessage, TextSendMessage,
     PostbackEvent, PostbackAction,
     TemplateSendMessage, CarouselTemplate, CarouselColumn, 
-    FollowEvent, FlexSendMessage,
-    # [新增] 引入 QuickReply 與位置訊息相關模組
-    QuickReply, QuickReplyButton, LocationAction, LocationMessage
+    FollowEvent, FlexSendMessage
 )
 from dotenv import load_dotenv
 
 # 引用你的爬蟲主程式
-# [修改] 新增引用 LOCATION_COORDS 和 get_real_walking_info
-from scraper_final import (
-    get_weekly_star_info, 
-    get_impromptu_star_info, 
-    all_locations, 
-    update_weekly_csv,
-    LOCATION_COORDS,       # 座標資料
-    get_real_walking_info  # 計算邏輯
-)
+from scraper_final import get_weekly_star_info, get_impromptu_star_info, all_locations, update_weekly_csv
 
 
 # 先去翻閱「機密筆記本」（.env 檔），把裡面寫的密碼讀進記憶體裡。
@@ -48,9 +38,6 @@ handler = WebhookHandler(channel_secret)
 # ==========================================
 # 0. 資料與設定區
 # ==========================================
-
-# [新增] 使用者暫存記憶體 (用來記住誰剛剛點了哪個景點，放在 app.py 管理)
-USER_SESSION = {}
 
 # (A) 載入簡介資料
 SPOT_DESCRIPTIONS = {}
@@ -272,8 +259,7 @@ def handle_postback(event):
                 actions=[
                     PostbackAction(label="未來一週指南", data=f"action=weekly&pid={pid}&name={name}"),
                     PostbackAction(label="今晚觀星分析", data=f"action=impromptu&pid={pid}&name={name}"),
-                    # [修改] 第三個按鈕改為「觀星景點資訊」，並使用 info action
-                    PostbackAction(label="觀星景點資訊", data=f"action=info&pid={pid}&name={name}")
+                    PostbackAction(label="景點簡略介紹", data=f"action=desc&pid={pid}&name={name}")
                 ]
             )
             columns.append(column)
@@ -294,96 +280,14 @@ def handle_postback(event):
         res = get_impromptu_star_info(pid, name)
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text=res))
 
-    # [修改] 處理景點資訊與位置請求 (取代原本的 desc)
-    elif action == 'info':
+    elif action == 'desc':
         pid = params.get('pid')
         name = params.get('name')
-        user_id = event.source.user_id # 取得使用者 ID
-        
-        # 1. 取得景點介紹
         desc = SPOT_DESCRIPTIONS.get(pid, "暫無詳細資料")
-        
-        # 2. 存入 Session，讓後面的位置訊息知道目標是誰
-        USER_SESSION[user_id] = {"pid": pid, "name": name}
-
-        # 3. 回覆介紹 + 引導傳送位置的 QuickReply
-        reply_text = (
-            f"📖 【{name}】\n\n{desc}\n\n"
-            f"想知道步行過去要多久嗎？\n"
-            f"請點擊下方按鈕👇"
-        )
-        
         line_bot_api.reply_message(
-            event.reply_token,
-            TextSendMessage(
-                text=reply_text,
-                quick_reply=QuickReply(items=[
-                    QuickReplyButton(action=LocationAction(label="📍 傳送目前位置"))
-                ])
-            )
+            event.reply_token, 
+            TextSendMessage(text=f"📖 【{name}】\n\n{desc}")
         )
-
-# [新增] D. 處理位置訊息 (計算距離與導航)
-@handler.add(MessageEvent, message=LocationMessage)
-def handle_location_message(event):
-    user_id = event.source.user_id
-    
-    # 1. 檢查使用者是否有正在進行的查詢
-    session_data = USER_SESSION.get(user_id)
-    if not session_data:
-        line_bot_api.reply_message(
-            event.reply_token,
-            TextSendMessage(text="請先從選單點選「觀星景點資訊」，我才知道你要去哪裡喔！")
-        )
-        return
-
-    # 2. 取得資料
-    target_pid = session_data['pid']
-    target_name = session_data['name']
-    user_lat = event.message.latitude
-    user_lng = event.message.longitude
-    
-    # 3. 取得目的地座標 (從 scraper_final 匯入的資料庫查)
-    dest_coords = LOCATION_COORDS.get(target_pid)
-    
-    if not dest_coords:
-        line_bot_api.reply_message(
-            event.reply_token,
-            TextSendMessage(text=f"抱歉，系統暫時缺少【{target_name}】的座標資料，無法計算距離。")
-        )
-        # 清除 Session
-        if user_id in USER_SESSION: del USER_SESSION[user_id]
-        return
-
-    # 4. 呼叫 Google Distance Matrix API (呼叫 scraper_final 裡的函式)
-    dist_text, time_text = get_real_walking_info(
-        user_lat, user_lng,
-        dest_coords[0], dest_coords[1]
-    )
-    
-    if time_text:
-        # 產生 Google Maps 導航連結 (使用官方 Universal URL 格式)
-        map_url = (
-            f"https://www.google.com/maps/dir/?api=1"
-            f"&origin={user_lat},{user_lng}"
-            f"&destination={dest_coords[0]},{dest_coords[1]}"
-            f"&travelmode=walking"
-        )
-
-        # 你的指定格式回覆
-        reply_msg = (
-            f"🚶 目前步行至【{target_name}】只要 {time_text} 哦，揪團走路去觀星吧!\n"
-            f"詳情請查看下方導航連結!\n"
-            f"{map_url}"
-        )
-    else:
-        reply_msg = "⚠️ 計算失敗，可能是 Google API 連線問題或距離太遠無法步行到達。"
-
-    line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply_msg))
-    
-    # 5. 任務結束，清除記憶
-    if user_id in USER_SESSION:
-        del USER_SESSION[user_id]
 
 if __name__ == "__main__":
     port = int(os.environ.get('PORT', 5000))
