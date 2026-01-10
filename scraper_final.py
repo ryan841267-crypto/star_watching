@@ -6,6 +6,7 @@ import re
 import requests # [新增] 用於呼叫 Google Maps API
 from datetime import datetime, timedelta, timezone
 from curl_cffi import requests as cffi_requests # ✨ 關鍵：使用偽裝瀏覽器請求
+from dotenv import load_dotenv # [新增] 讓這支程式也能讀到 .env
 
 # 修正 Windows 輸出編碼
 sys.stdout.reconfigure(encoding='utf-8')
@@ -13,6 +14,9 @@ sys.stdout.reconfigure(encoding='utf-8')
 # ==========================================
 # 🔑 設定區
 # ==========================================
+# [新增] 載入環境變數 (解決你剛剛報錯的問題)
+load_dotenv()
+
 CWA_API_KEY = os.getenv("CWA_API_KEY") 
 GOOGLE_MAPS_KEY = os.getenv("GOOGLE_MAPS_KEY") # [新增] Google API Key
 
@@ -157,7 +161,7 @@ def get_route_info(origin_lat, origin_lng, dest_lat, dest_lng, mode="driving"):
     return None, None
 
 # ==========================================
-# 💾 CSV 更新功能 (保留你的歷史資料需求)
+# 💾 CSV 更新功能 (雙檔策略: Bot用 / 歷史用)
 # ==========================================
 def update_weekly_csv():
     # 抓取「未來一週 (F-B0053-069)」資料
@@ -228,14 +232,46 @@ def update_weekly_csv():
                 csv_data.append(row)
             except: continue
 
+    # ==========================================
+    # 👇 修改區：資料分流 (Bot用 vs 歷史用)
+    # ==========================================
     if csv_data:
-        file_name = "all_taiwan_star_forecast.csv"
-        df = pd.DataFrame(csv_data)
-        df.to_csv(file_name, index=False, encoding="utf-8-sig")
-        print(f"✅ CSV 更新成功！已寫入 {len(df)} 筆資料。")
+        # 1. 準備當下的新資料
+        current_df = pd.DataFrame(csv_data)
+        
+        # -------------------------------------------------------
+        # 📂 檔案 A：Bot 專用 (每次覆蓋，只留最新 7 天，速度快)
+        # -------------------------------------------------------
+        bot_file = "all_taiwan_star_forecast.csv"
+        current_df.to_csv(bot_file, index=False, encoding="utf-8-sig")
+        print(f"✅ Bot 資料庫已更新 (覆蓋模式): 共 {len(current_df)} 筆")
+
+        # -------------------------------------------------------
+        # 🏛️ 檔案 B：歷史倉庫 (累積模式，保留過去所有資料)
+        # -------------------------------------------------------
+        history_file = "history_repository.csv"
+        
+        if os.path.exists(history_file):
+            try:
+                old_df = pd.read_csv(history_file, encoding="utf-8-sig")
+                # 合併舊資料 + 新資料
+                history_df = pd.concat([old_df, current_df], ignore_index=True)
+                # 去除重複：如果「地點+時間」一樣，保留最新的預報 (keep='last')
+                history_df.drop_duplicates(subset=['location', 'pid', 'date', '時間'], keep='last', inplace=True)
+            except:
+                history_df = current_df # 讀取失敗就直接用新的
+        else:
+            history_df = current_df # 沒檔案就直接創新的
+
+        # [新增] 排序功能：依照 ID -> 日期 -> 時間 排列，讓歷史檔整齊
+        if not history_df.empty:
+            history_df.sort_values(by=['pid', 'date', '時間'], inplace=True)
+
+        history_df.to_csv(history_file, index=False, encoding="utf-8-sig")
+        print(f"📚 歷史資料庫已備份 (累積+排序): 共 {len(history_df)} 筆")
+
     else:
         print("⚠️ 雖然抓到 API 但沒有解析出有效資料。")
-
 # ==========================================
 # 🔭 功能 A：今晚觀星 (使用 F-B0053-071)
 # ==========================================
@@ -248,24 +284,16 @@ def format_time_ranges(time_list):
     if not hours: return ""
 
     # 判斷是否有「晚上（18點以後）」的資料
-    # 如果時間清單裡同時有 「晚上（>=18）」 和 「凌晨（<=5）」，代表這是跨夜的情況。
-    # 轉換並排序後 processed格式: [23, 24, 25, 28, 29]
     has_evening = any(h >= 18 for h in hours)
     processed = [h + 24 if (h <= 5 and has_evening) else h for h in hours]
     processed.sort()
     
     ranges = []
     if not processed: return ""
-    # 初始化指標：記住「這一組」的起點 (start_h) 和 上一個處理的數字 (prev_h)
     start_h = prev_h = processed[0]
     
     for i in range(1, len(processed)): # 從第2個開始
         curr = processed[i]
-        # 判斷連續：如果「現在這個數字」等於「上個數字 + 1」
-        # 就把「前一個」往後推，繼續串下去
-        # 如果斷掉了(例如從 25 跳到 28)，先把前面那一組 (23~25) 結算並存起來
-        # 開啟新的一組，起點設為現在這個數字 (28)
-        # 用餘數將加24小時的凌晨時間(0-5)變回標準時間
         if curr == prev_h + 1: prev_h = curr
         else:
             ranges.append(f"{start_h%24:02d}:00-{(prev_h+1)%24:02d}:00")
@@ -294,8 +322,6 @@ def get_impromptu_star_info(pid, location_name):
             if not t_str: continue
             dt = datetime.fromisoformat(t_str)
 
-            # 篩選未來24h內的晚上
-            # 直接用 86400，用天數判斷就要再多寫 timedelta 的程式碼
             if dt > now and (dt.hour >= 18 or dt.hour <= 5):
                 if (dt - now).total_seconds() > 86400: continue
                 
@@ -318,7 +344,7 @@ def get_impromptu_star_info(pid, location_name):
     except Exception as e: return f"❌ 解析錯誤: {e}"
 
 # ==========================================
-# 📅 功能 B：未來一週 (讀取 CSV + 修正版輸出)
+# 📅 功能 B：未來一週 (Bot 讀取專用)
 # ==========================================
 def get_weekly_star_info(location_name):
     file_name = "all_taiwan_star_forecast.csv"
@@ -335,8 +361,7 @@ def get_weekly_star_info(location_name):
         
         if target_df.empty: return f"找不到「{location_name}」的資料。"
 
-        today_str = datetime.now().strftime("%m/%d")
-        
+        # 直接取前 7 筆 (因為檔案只有最新的，不用過濾日期)
         data_list = target_df.head(7).to_dict('records')
         blocks = []
         for item in data_list:
@@ -399,7 +424,7 @@ if __name__ == "__main__":
         print("❌ 請先設定 CWA_API_KEY 環境變數！")
     else:
         # 測試一下
-        print("測試更新 CSV...")
+        print("測試更新 CSV (雙檔策略)...")
         update_weekly_csv()
-        print("測試讀取...")
+        print("\n測試讀取 (Bot 模式)...")
         print(get_weekly_star_info("鹿林天文台"))

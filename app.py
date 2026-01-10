@@ -359,21 +359,21 @@ def handle_location_message(event):
     # A. 開車 (Driving)
     dist_drive, time_drive = get_route_info(user_lat, user_lng, dest_coords[0], dest_coords[1], "driving")
     if time_drive: 
-        results.append(f"開車: {time_drive} ({dist_drive})")
+        results.append(f"距離: {dist_drive}\n🚗 開車: {time_drive}")
     
     # B. 大眾運輸 (Transit)
     dist_transit, time_transit = get_route_info(user_lat, user_lng, dest_coords[0], dest_coords[1], "transit")
     if time_transit: 
-        results.append(f"大眾運輸: {time_transit}")
+        results.append(f"🚌 大眾運輸: {time_transit}")
     else:
         # 山區查不到公車時，可以不顯示或顯示提示
-        results.append(f"大眾運輸: 暫無路線")
-        pass
+        results.append(f"🚌 大眾運輸: 暫無路線")
+        
     
     # C. 走路 (Walking)
     dist_walk, time_walk = get_route_info(user_lat, user_lng, dest_coords[0], dest_coords[1], "walking")
     if time_walk: 
-        results.append(f"走路: {time_walk}")
+        results.append(f"🚶 走路: {time_walk}")
 
     # 5. 組合訊息
     if results:
@@ -390,9 +390,10 @@ def handle_location_message(event):
         
         reply_msg = (
             f"🏁 抵達【{target_name}】的預估時間：\n\n"
-            f"{info_text}\n\n"
-            f"揪團去觀星吧！\n"
-            f"👇 點擊開啟Google Maps導航\n"
+            f"===============\n"
+            f"{info_text}\n"
+            f"===============\n\n"
+            f"👇 點擊開啟Google Maps導航，揪團去觀星吧！\n"
             f"{map_url}"
         )
     else:
