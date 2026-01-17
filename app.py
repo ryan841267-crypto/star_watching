@@ -17,7 +17,7 @@ from apscheduler.schedulers.background import BackgroundScheduler # [新增] 排
 
 # 引用你的爬蟲主程式
 # [修改] 改為引用通用的 get_route_info 函式
-from scraper_final import (
+from weather_and_map import (
     get_weekly_star_info, 
     get_impromptu_star_info, 
     all_locations, 
@@ -55,7 +55,7 @@ handler = WebhookHandler(channel_secret)
 def scheduled_update():
     print("⏰ 排程啟動：正在更新天氣資料庫 (CSV)...")
     try:
-        # 這是你 scraper_final.py 裡的函式
+        # 這是你 weather_and_map.py 裡的函式
         # 它會去抓資料 -> 存成 all_taiwan_star_forecast.csv -> 並 append 到 history_repository.csv
         update_weekly_csv() 
         print("✅ 排程完成：天氣資料庫已更新")
@@ -66,8 +66,12 @@ def scheduled_update():
 scheduler = BackgroundScheduler()
 
 # [修改] 改用 cron 模式：指定在每天的 0, 6, 12, 18 點整執行
-# timezone="Asia/Taipei" 非常重要！確保是台灣時間的整點
-scheduler.add_job(func=scheduled_update, trigger="cron", hour='0,6,12,18', minute=0, timezone="Asia/Taipei")
+# [修改] 手動換算版：對應台灣的 06, 12, 18, 00 點
+# 22 = 台灣早上 6 點
+# 4  = 台灣中午 12 點
+# 10 = 台灣晚上 6 點
+# 16 = 台灣半夜 12 點
+scheduler.add_job(func=scheduled_update, trigger="cron", hour='4,10,16,22', minute=0)
 
 # 啟動排程
 scheduler.start()
