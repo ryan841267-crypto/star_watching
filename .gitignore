@@ -16,6 +16,3 @@ __pycache__/
 .vscode/
 .idea/
 
-# 5. 資料檔案 (根據你的需求決定)
-# 如果你希望 CSV 由 GitHub Actions 自動更新並存回 GitHub，
-# 那麼這裡「不要」寫 all_taiwan_star_forecast.csv

@@ -1,5 +1,6 @@
 import os
 import json
+import atexit # [新增] 用來在程式結束時關閉排程器
 from flask import Flask, request, abort
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
@@ -12,6 +13,7 @@ from linebot.models import (
     StickerMessage
 )
 from dotenv import load_dotenv
+from apscheduler.schedulers.background import BackgroundScheduler # [新增] 排程器套件
 
 # 引用你的爬蟲主程式
 # [修改] 改為引用通用的 get_route_info 函式
@@ -44,6 +46,34 @@ channel_secret = os.getenv('CHANNEL_SECRET')
 # 當 Line 傳訊息過來（Webhook），它負責檢查安全簽章，然後判斷這是「文字訊息」還是「貼圖訊息」，再指派給對應的函式去處理。
 line_bot_api = LineBotApi(channel_access_token)
 handler = WebhookHandler(channel_secret)
+
+# ==========================================
+# 🕒 [新增] 自動排程系統 (APScheduler)
+# ==========================================
+# 即使有 UptimeRobot 保持喚醒，我們也需要這個排程器來確保資料會定時更新
+# 不然如果檔案一直存在，程式就不會去抓新資料
+def scheduled_update():
+    print("⏰ 排程啟動：正在更新天氣資料庫 (CSV)...")
+    try:
+        # 這是你 scraper_final.py 裡的函式
+        # 它會去抓資料 -> 存成 all_taiwan_star_forecast.csv -> 並 append 到 history_repository.csv
+        update_weekly_csv() 
+        print("✅ 排程完成：天氣資料庫已更新")
+    except Exception as e:
+        print(f"❌ 排程失敗：{e}")
+
+# 初始化排程器
+scheduler = BackgroundScheduler()
+
+# [修改] 改用 cron 模式：指定在每天的 0, 6, 12, 18 點整執行
+# timezone="Asia/Taipei" 非常重要！確保是台灣時間的整點
+scheduler.add_job(func=scheduled_update, trigger="cron", hour='0,6,12,18', minute=0, timezone="Asia/Taipei")
+
+# 啟動排程
+scheduler.start()
+
+# 確保程式關閉時，排程器也會跟著關閉，避免吃記憶體
+atexit.register(lambda: scheduler.shutdown())
 
 # ==========================================
 # 0. 資料與設定區

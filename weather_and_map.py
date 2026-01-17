@@ -302,7 +302,7 @@ def format_time_ranges(time_list):
     return "、".join(ranges)
 
 def get_impromptu_star_info(pid, location_name):
-    # 下載 3hr 資料 (抗封鎖)
+    # 即時下載 3hr 資料
     data = fetch_file_api_data("F-B0053-071") 
     if not data: return "⚠️ 氣象署連線忙碌中，請稍後再試。"
     
@@ -318,28 +318,52 @@ def get_impromptu_star_info(pid, location_name):
         
         weather_list = elements.get('天氣現象', [])
         for i, item in enumerate(weather_list):
-            t_str = item.get('DataTime') or item.get('StartTime')
-            if not t_str: continue
-            dt = datetime.fromisoformat(t_str)
+            # [修改 1] 同時取得開始與結束時間
+            start_str = item.get('StartTime')
+            end_str = item.get('EndTime')
+            if not start_str or not end_str: continue
+            
+            start_dt = datetime.fromisoformat(start_str)
+            end_dt = datetime.fromisoformat(end_str)
+            wx = item['ElementValue']['Weather']
 
-            if dt > now and (dt.hour >= 18 or dt.hour <= 5):
-                if (dt - now).total_seconds() > 86400: continue
+            # [修改 2] 將 3 小時的時間區段，「展開」成每個小時
+            # 例如 18:00~21:00 -> 產生 18:00, 19:00, 20:00 三筆資料
+            current_pointer = start_dt
+            while current_pointer < end_dt:
+                # 判斷是否為晚上 (18~05) 且是未來時間
+                if current_pointer > now and (current_pointer.hour >= 18 or current_pointer.hour <= 5):
+                    # 檢查是否超過 24 小時 (避免顯示太多天後的資料)
+                    if (current_pointer - now).total_seconds() <= 86400:
+                        night_status.append((current_pointer.strftime('%H:%M'), wx))
                 
-                wx = item['ElementValue']['Weather']
-                night_status.append((dt.strftime('%H:%M'), wx))
+                # 往後推一小時
+                current_pointer += timedelta(hours=1)
 
-        # 評分與建議
-        perfect_times = [t for t, w in night_status if "晴" in w]
+        # 1. 最優先判斷：是否有壞天氣 (陰天或雨)
+        # 只要這段時間內出現任何 "陰" 或 "雨" 的字眼，就直接勸退
+        has_bad_weather = any("陰" in w or "雨" in w for t, w in night_status)
+
+        if has_bad_weather:
+            return f"🔭 【{location_name}】觀星建議：😭 \n今晚天氣不佳，不建議前往觀星，請好好睡覺。"
+
+        # 2. 如果沒有壞天氣，才開始找好天氣
+        perfect_times = [t for t, w in night_status if "晴" in w] # 抓"晴"、"晴時多雲"、"多雲時晴"三種天氣
         cloudy_times = [t for t, w in night_status if "多雲" in w and "晴" not in w]
+        
+        # 去除重複並保持順序
+        perfect_times = sorted(list(set(perfect_times)), key=lambda x: (int(x.split(':')[0]) + 24) if int(x.split(':')[0]) < 12 else int(x.split(':')[0]))
+        cloudy_times = sorted(list(set(cloudy_times)), key=lambda x: (int(x.split(':')[0]) + 24) if int(x.split(':')[0]) < 12 else int(x.split(':')[0]))
 
         if perfect_times:
             return f"🔭 【{location_name}】觀星建議：😊 \n太棒了！今晚最適合觀星的時段為：{format_time_ranges(perfect_times)}"
         elif cloudy_times:
-            return f"🔭 【{location_name}】觀星建議：😐 \n今晚雲量較多，若要碰運氣可選這些時段：{format_time_ranges(cloudy_times)}"
+            return f"🔭 【{location_name}】觀星建議：😐 \n今晚雲量較多，可碰運氣的時段為：{format_time_ranges(cloudy_times)}"
         elif not night_status:
             return f"🔭 【{location_name}】\n目前中央氣象署資料更新中，請稍晚再試。"
         else:
-            return f"🔭 【{location_name}】觀星建議：😭 \n今晚天氣不佳（陰天或雨），不建議前往觀星。"
+            # 這裡理論上跑不到了，因為壞天氣都被第一個 if 抓走了，但留著當保險
+            return f"🔭 【{location_name}】觀星建議：😭 \n今晚天氣不佳，不建議前往觀星，請好好睡覺。"
 
     except Exception as e: return f"❌ 解析錯誤: {e}"
 
@@ -372,16 +396,17 @@ def get_weekly_star_info(location_name):
             eval_msg = ""
             
             if "晴" in wx:
+                eval_msg = "今晚高機率看到星星哦!"
                 score = 3
                 try:
                     fl = float(str(item.get('體感最低溫', '20')).replace("..", ""))
                     if fl > 15: score += 1
                     if 20 <= fl <= 25: score += 1
                     
-                    if fl < 15: eval_msg = "天氣寒冷，外出觀星建議多穿保暖衣物！"
-                    elif 15 <= fl < 20: eval_msg = "天氣稍涼，外出觀星建議穿件薄外套！"
-                    elif 20 <= fl <= 25: eval_msg = "天氣舒適，絕佳觀星日！"
-                    else: eval_msg = "適合觀星的溫熱夜晚！"
+                    if fl < 15: eval_msg = "另今晚天氣寒冷，外出觀星建議多穿保暖衣物！"
+                    elif 15 <= fl < 20: eval_msg = "另今晚天氣稍涼，外出觀星建議穿件薄外套！"
+                    elif 20 <= fl <= 25: eval_msg = "另今晚天氣舒適，絕佳觀星日！"
+                    else: eval_msg = "另今晚是適合觀星的溫熱夜晚！"
                 except: eval_msg = "請注意氣溫變化。"
                 
                 try:

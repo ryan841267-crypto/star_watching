@@ -12,7 +12,7 @@ from linebot.models import (
 from dotenv import load_dotenv
 
 # 引用你的爬蟲主程式
-from scraper_final import get_weekly_star_info, get_impromptu_star_info, all_locations
+from weather_and_map import get_weekly_star_info, get_impromptu_star_info, all_locations
 
 load_dotenv()
 
