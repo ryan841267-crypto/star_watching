@@ -391,37 +391,56 @@ def get_weekly_star_info(location_name):
         for item in data_list:
             wx = str(item.get('天氣狀況', ''))
             
-            # --- 你的評分邏輯 ---
+            # --- 評分邏輯 ---
             score = 1
             eval_msg = ""
-            
-            if "晴" in wx:
-                eval_msg = "今晚高機率看到星星哦!"
-                score = 3
+
+            # 1. 最優先檢查：壞天氣 (陰天或雨)
+            # 只要出現這兩個字，直接判定為不適合，也不用管溫度了
+            if "陰" in wx or "雨" in wx:
+                score = 1
+                eval_msg = "今晚不適合觀星。"
+
+            # 2. 好天氣檢查：晴天 或 多雲
+            elif "晴" in wx or "多雲" in wx:
+                # --- A. 決定基礎分數與開頭語 ---
+                if "晴" in wx:
+                    score = 3
+                    eval_msg = "今晚高機率看到星星哦！"
+                else:
+                    # 這裡代表只有「多雲」(沒有晴也沒有雨/陰)
+                    score = 2
+                    eval_msg = "今晚雲量較多，很想看星星的話可碰碰運氣。"
+                
+                # --- B. 溫度判斷 (晴天跟多雲都用這一套) ---
                 try:
                     fl = float(str(item.get('體感最低溫', '20')).replace("..", ""))
+                    
+                    # 溫度加分邏輯
                     if fl > 15: score += 1
                     if 20 <= fl <= 25: score += 1
                     
+                    # 溫度建議訊息 (記得加 \n 換行)
                     if fl < 15: eval_msg += "另今晚天氣寒冷，外出觀星建議多穿保暖衣物！"
                     elif 15 <= fl < 20: eval_msg += "另今晚天氣稍涼，外出觀星建議穿件薄外套！"
                     elif 20 <= fl <= 25: eval_msg += "另今晚天氣舒適，絕佳觀星日！"
                     else: eval_msg += "另今晚是適合觀星的溫熱夜晚！"
-                except: eval_msg += "請注意氣溫變化。"
-                
+                except:
+                    eval_msg += "\n(溫度資料暫缺，請注意氣溫變化)"
+
+                # --- C. 風力扣分 (晴天跟多雲都用這一套) ---
                 try:
                     ws = item.get('蒲福風級', '0')
                     wm = re.findall(r'\d+', str(ws))
                     if wm and int(wm[-1]) >= 5: score -= 1
                 except: pass
 
-            elif "多雲" in wx:
-                score = 2
-                eval_msg = "今晚雲量較多，可碰運氣。"
+            # 3. 其他未知天氣
             else:
                 score = 1
                 eval_msg = "今晚不適合觀星。"
 
+            # 確保分數在 1~5 之間
             score = max(1, min(5, score))
             stars = "⭐" * score
             
