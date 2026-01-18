@@ -10,7 +10,7 @@ from bs4 import BeautifulSoup
 sys.stdout.reconfigure(encoding='utf-8')
 
 # 確保引用你的地點清單
-from scraper_final import all_locations
+from weather_and_map import all_locations
 
 def scrape_description(pid, location_name):
 
