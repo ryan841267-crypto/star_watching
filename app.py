@@ -315,7 +315,6 @@ def handle_postback(event):
                 actions=[
                     PostbackAction(label="未來一週指南", data=f"action=weekly&pid={pid}&name={name}"),
                     PostbackAction(label="今晚觀星分析", data=f"action=impromptu&pid={pid}&name={name}"),
-                    # [修改] 第三個按鈕改為「觀星景點資訊」，並使用 info action
                     PostbackAction(label="觀星景點資訊", data=f"action=info&pid={pid}&name={name}")
                 ]
             )
