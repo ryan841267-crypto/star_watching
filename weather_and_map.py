@@ -403,11 +403,11 @@ def get_weekly_star_info(location_name):
                     if fl > 15: score += 1
                     if 20 <= fl <= 25: score += 1
                     
-                    if fl < 15: eval_msg = "另今晚天氣寒冷，外出觀星建議多穿保暖衣物！"
-                    elif 15 <= fl < 20: eval_msg = "另今晚天氣稍涼，外出觀星建議穿件薄外套！"
-                    elif 20 <= fl <= 25: eval_msg = "另今晚天氣舒適，絕佳觀星日！"
-                    else: eval_msg = "另今晚是適合觀星的溫熱夜晚！"
-                except: eval_msg = "請注意氣溫變化。"
+                    if fl < 15: eval_msg += "另今晚天氣寒冷，外出觀星建議多穿保暖衣物！"
+                    elif 15 <= fl < 20: eval_msg += "另今晚天氣稍涼，外出觀星建議穿件薄外套！"
+                    elif 20 <= fl <= 25: eval_msg += "另今晚天氣舒適，絕佳觀星日！"
+                    else: eval_msg += "另今晚是適合觀星的溫熱夜晚！"
+                except: eval_msg += "請注意氣溫變化。"
                 
                 try:
                     ws = item.get('蒲福風級', '0')
