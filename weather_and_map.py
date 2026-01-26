@@ -466,7 +466,7 @@ if __name__ == "__main__":
     if not CWA_API_KEY:
         print("❌ 請先設定 CWA_API_KEY 環境變數！")
     else:
-        # 測試一下
+        # 測試
         print("測試更新 CSV (雙檔策略)...")
         update_weekly_csv()
         print("\n測試讀取 (Bot 模式)...")
