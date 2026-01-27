@@ -372,9 +372,45 @@ def get_impromptu_star_info(pid, location_name):
 def get_weekly_star_info(location_name):
     file_name = "all_taiwan_star_forecast.csv"
     
-    # 檔案不存在時自動抓取 (修復 Render 重啟後資料消失問題)
+    # ==========================================
+    # 🕵️‍♂️ 智慧檢查機制 (開始)
+    # ==========================================
+    # 1. 取得「台灣時間」今天的日期字串 (格式必須跟 CSV 裡的 "01/27" 一模一樣)
+    now_tw = datetime.now(timezone(timedelta(hours=8)))
+    today_str = now_tw.strftime("%m/%d")
+    
+    need_update = False
+
+    # 2. 第一關：檢查檔案在不在
     if not os.path.exists(file_name):
+        print(f"⚠️ 找不到 {file_name}，準備下載...")
+        need_update = True
+    else:
+        # 3. 第二關：檢查內容有沒有過期
+        try:
+            # 為了省資源，我們只讀取 'date' 這一欄就好
+            df_check = pd.read_csv(file_name, usecols=['date'], encoding="utf-8-sig")
+            
+            # 邏輯：如果 CSV 裡的所有日期，完全找不到「今天」，代表這份資料是舊的
+            # .values 是把欄位轉成陣列，比較速度快
+            if today_str not in df_check['date'].values:
+                # 為了 debug 方便，印出它最新的日期是哪一天
+                last_date = df_check['date'].iloc[-1] if not df_check.empty else "空檔案"
+                print(f"⚠️ 資料庫過期 (檔案最新日期: {last_date}，今天是: {today_str})，強制更新...")
+                need_update = True
+            else:
+                print("✅ 資料庫有效 (包含今日資料)，直接讀取。")
+                
+        except Exception as e:
+            print(f"⚠️ 檔案讀取異常或格式錯誤 ({e})，保險起見強制重抓...")
+            need_update = True
+
+    # 4. 如果上面的檢查判斷需要更新，就在這裡執行爬蟲
+    if need_update:
         update_weekly_csv()
+    # ==========================================
+    # 🕵️‍♂️ 智慧檢查機制 (結束)
+    # ==========================================
     
     try:
         if not os.path.exists(file_name): return "⚠️ 資料庫暫時無法讀取，請稍後再試。"
